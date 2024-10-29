@@ -31,6 +31,10 @@ def parse_args():
     assert os.path.exists(args.out_dir)
     assert args.img_format in ['pdf', 'svg']
     args.out_dir = args.out_dir.rstrip('/')
+    # Standarize the sizes to integers
+    args.scale = int(args.scale)
+    args.step = int(args.step)
+    args.min_len = int(args.min_len)
     return args
 
 # Load the chromosome order list
@@ -122,8 +126,9 @@ def load_window_stats_file(win_f, chromosomes):
         win_vals.append(val)
 
     mean_vals = np.mean(win_vals)
+    max_val = max(win_vals)
 
-    return wins_dict, mean_vals
+    return wins_dict, mean_vals, max_val
 
 #
 # Colors for the chromosome elements
@@ -162,13 +167,19 @@ colors = []
 # Mango
 # colors.append((  0.0/255.0, 105.0/255.0, 062.0/255.0)) # #00693e Green
 # colors.append((255.0/255.0, 168.0/255.0,  18.0/255.0)) # #ffa812 Yellow
-# colors.append((178.0/255.0,  34.0/255.0,  34.0/255.0)) # ff0000 Red
+# colors.append((178.0/255.0,  34.0/255.0,  34.0/255.0)) # #ff0000 Red
+
+# Mango Light
+# colors.append(( 68.0/255.0, 157.0/255.0,  72.0/255.0)) # #449D48 Green
+# colors.append((246.0/255.0, 219.0/255.0, 106.0/255.0)) # #F6DB6A Yellow
+# colors.append((229.0/255.0,  68.0/255.0,  73.0/255.0)) # #e54449 Red
 
 # Magma
 # colors.append((  0.0/255.0,   0.0/255.0, 139.0/255.0)) # #191970 Indigo
 # colors.append((255.0/255.0,  40.0/255.0,   0.0/255.0)) # ff0000 Red
 # colors.append((252.0/255.0, 247.0/255.0,  94.0/255.0)) # #ffa812 Yellow
 
+# RedYellowBlue
 colors.append((  0.0/255.0,  80.0/255.0, 242.0/255.0)) # 0050f2 Blue
 colors.append((252.0/255.0, 247.0/255.0,  94.0/255.0)) # #ffa812 Yellow
 colors.append((255.0/255.0,   0.0/255.0,   0.0/255.0)) # ff0000 Red
@@ -192,19 +203,25 @@ def scale_sigmoid_color_mean(mean, val):
     val  = a * math.exp(-1 * b * (math.exp(-1 * c * (val - 2 - mean))))
     return val
 
-def three_color_gradient(rgb1, rgb2, rgb3, mean, alpha):
+def three_color_gradient(rgb1, rgb2, rgb3, mean, alpha, max_scale):
     (r1, g1, b1) = rgb1
     (r2, g2, b2) = rgb2
     (r3, g3, b3) = rgb3
 
-    alpha = scale_sigmoid_color_mean(mean, alpha)
-    if (alpha < mean):
-        scaled_alpha = float(alpha) / mean
+    # Adjust mean and alpha so that max value is 1.0
+    adj_mean = mean/max_scale
+    adj_alpha = alpha/max_scale
+    adj_alpha = scale_sigmoid_color_mean(adj_mean, adj_alpha)
+    # scaled_alpha = float(alpha)
+    if (adj_alpha < adj_mean):
+        # scaled_alpha = float(alpha) / mean
+        scaled_alpha = float(adj_alpha) / adj_mean
         r = ((1.0 - scaled_alpha) * r1) + (scaled_alpha * r2)
         g = ((1.0 - scaled_alpha) * g1) + (scaled_alpha * g2)
         b = ((1.0 - scaled_alpha) * b1) + (scaled_alpha * b2)
     else:
-        scaled_alpha = float(alpha - mean) / (1.0 - mean)
+        # scaled_alpha = float(alpha - mean) / (1.0 - mean)
+        scaled_alpha = float(adj_alpha - adj_mean) / (1.0 - adj_mean)
         r = (scaled_alpha * r3) + ((1.0 - scaled_alpha) * r2)
         g = (scaled_alpha * g3) + ((1.0 - scaled_alpha) * g2)
         b = (scaled_alpha * b3) + ((1.0 - scaled_alpha) * b2)
@@ -247,11 +264,11 @@ class Image:
             return surface, context
         else:
             sys.exit("The only supported formats are \'PDF\' and \'SVG\'.")
-    # Display image
-    def show_svg(self, plot_out_dir):
-        if self.type != 'svg':
-            sys.exit('Image can only be displayed in SVG format')
-        display(SVG(filename=file))
+    # # Display image
+    # def show_svg(self, plot_out_dir):
+    #     if self.type != 'svg':
+    #         sys.exit('Image can only be displayed in SVG format')
+    #     display(SVG(filename=file))
 
 #
 # Plot gridlines
@@ -293,7 +310,7 @@ def plot_gridlines(chromosomes, image, context, scale=1_000_000, step=5_000_000)
 #
 # Process the chromosomes
 #
-def process_chromosomes(chromosomes, chrom_order, reps_dict, image, context, max_grd, mean_reps, scale=1_000_000, step=5_000_000):
+def process_chromosomes(chromosomes, chrom_order, reps_dict, image, context, max_grd, mean_reps, max_reps, scale=1_000_000, step=5_000_000):
     assert type(chromosomes) is dict
     assert isinstance(list(chromosomes.values())[0], Chromosome)
     assert type(reps_dict) is dict
@@ -324,7 +341,8 @@ def process_chromosomes(chromosomes, chrom_order, reps_dict, image, context, max
                 if window.bp > bp:
                     continue
                 x = image.scale_bp_to_pix(window.bp, max_grd)
-                (r, g, b) = three_color_gradient(colors[0], colors[1], colors[2], mean_reps, window.val)
+                (r, g, b) = three_color_gradient(colors[0], colors[1], colors[2], mean_reps,
+                                                 window.val, max_reps)
                 context.set_dash([])
                 context.move_to(x, y1)
                 context.line_to(x, y2)
@@ -362,7 +380,7 @@ def process_chromosomes(chromosomes, chrom_order, reps_dict, image, context, max
 #
 # Draw the Scale
 #
-def draw_scale(image, context, mean_reps):
+def draw_scale(image, context, mean_reps, max_reps):
     assert isinstance(image, Image)
     # Boundaries
     x1 = image.max_x*0.945
@@ -371,10 +389,10 @@ def draw_scale(image, context, mean_reps):
     y2 = image.max_tck*0.995
     # Loop over the color space
     s=0.005
-    for p in np.arange(0,(1+s),s):
-        (r, g, b) = three_color_gradient(colors[0], colors[1], colors[2], mean_reps, p)
+    for p in np.arange(0,(max_reps+s),s):
+        (r, g, b) = three_color_gradient(colors[0], colors[1], colors[2], mean_reps, p, max_reps)
         key_h = y2-y1
-        yp = y2-(key_h*p)
+        yp = y2-(key_h*(p/max_reps))
         context.set_dash([])
         context.move_to(x1, yp)
         context.line_to(x2, yp)
@@ -399,8 +417,9 @@ def draw_scale(image, context, mean_reps):
     #
     # Add labels
     #
-    # Label 1
-    lab1 = f'{1.0}'
+    # Top Label
+    lab1 = f'{float(round(max_reps+s))}'
+    lab1 = f'{round(max_reps+s)}x'
     label_height = context.text_extents(lab1)[3]
     label_width  = context.text_extents(lab1)[2]
     lab_x = x1-(label_width*1.25)
@@ -409,8 +428,9 @@ def draw_scale(image, context, mean_reps):
     context.move_to(lab_x, lab_y)
     context.set_source_rgb(txt_col.r, txt_col.g, txt_col.b)
     context.show_text(lab1)
-    # Label 2
-    lab2 = f'{0.0}'
+    # Bottom Label
+    lab2 = f'{0.0}x'
+    lab2 = '0x'
     label_height = context.text_extents(lab2)[3]
     label_width  = context.text_extents(lab2)[2]
     lab_x = x1-(label_width*1.25)
@@ -419,6 +439,19 @@ def draw_scale(image, context, mean_reps):
     context.move_to(lab_x, lab_y)
     context.set_source_rgb(txt_col.r, txt_col.g, txt_col.b)
     context.show_text(lab2)
+    # Middle label
+    labm = f'{1.0}x'
+    labm = f'1x'
+    label_height = context.text_extents(labm)[3]
+    label_width  = context.text_extents(labm)[2]
+    lab_x = x1-(label_width*1.25)
+    key_h = y2-y1
+    lab_y = y2-(key_h*(mean_reps/max_reps))+(label_height/2)
+    # lab_y = y1+(label_height/2)
+    txt_col = ChromColors('text')
+    context.move_to(lab_x, lab_y)
+    context.set_source_rgb(txt_col.r, txt_col.g, txt_col.b)
+    context.show_text(labm)
 
 # Add title to the figure
 def draw_title(image, context, title):
@@ -435,16 +468,17 @@ def draw_title(image, context, title):
 
 
 # Draw a figure
-def draw_genome_stats(outf, chromosomes, chrom_order, win_val_dict, mean_val, name, height=500, width=500, scale=1_000_000, step=5_000_000, img_type='pdf'):
+def draw_genome_stats(outf, chromosomes, chrom_order, win_val_dict, mean_val, max_val, name,
+                      height=500, width=500, scale=1_000_000, step=5_000_000, img_type='pdf'):
     # Set an image object global variable
     image = Image(height=height, width=width, img_type=img_type)
     surface, context = image.cairo_context(outf)
     # Plot gridlines
     max_grd = plot_gridlines(chromosomes, image, context, scale, step)
     # Process the chromosomes
-    process_chromosomes(chromosomes, chrom_order, win_val_dict, image, context, max_grd, mean_val, scale, step)
+    process_chromosomes(chromosomes, chrom_order, win_val_dict, image, context, max_grd, mean_val, max_val, scale, step)
     # Plot the scale
-    draw_scale(image, context, mean_val)
+    draw_scale(image, context, mean_val, max_val)
     # Add title
     draw_title(image, context, name)
 
@@ -457,9 +491,9 @@ def main():
     # Get Max Chr size
     max_bp = max([ chromosomes[chrom].len for chrom in chromosomes ])
     # Load repeats
-    reps_dict, mean_reps = load_window_stats_file(args.reps_tsv, chromosomes)
+    reps_dict, mean_reps, max_reps = load_window_stats_file(args.reps_tsv, chromosomes)
     # Load genes
-    gene_dict, mean_gene = load_window_stats_file(args.prot_tsv, chromosomes)
+    gene_dict, mean_gene, max_gene = load_window_stats_file(args.prot_tsv, chromosomes)
 
     # ============
     # Draw Repeats
@@ -469,7 +503,9 @@ def main():
     outf = f'{args.out_dir}/repeat_stats.{args.img_format}'
     name = f'{args.name} Repeats'
     # Draw
-    draw_genome_stats(outf, chromosomes, chrom_order, reps_dict, mean_reps, name, height=args.img_height, width=args.img_width, scale=args.scale, step=args.step, img_type=args.img_format)
+    draw_genome_stats(outf, chromosomes, chrom_order, reps_dict, mean_reps, max_reps, name,
+                      height=args.img_height, width=args.img_width, scale=args.scale, step=args.step, 
+                      img_type=args.img_format)
 
     # =============
     # Draw Proteins
@@ -479,7 +515,9 @@ def main():
     outf = f'{args.out_dir}/genes_stats.{args.img_format}'
     name = f'{args.name} Genes'
     # Draw
-    draw_genome_stats(outf, chromosomes, chrom_order, gene_dict, mean_gene, name, height=args.img_height, width=args.img_width, scale=args.scale, step=args.step, img_type=args.img_format)
+    draw_genome_stats(outf, chromosomes, chrom_order, gene_dict, mean_gene, max_gene, name,
+                      height=args.img_height, width=args.img_width, scale=args.scale, step=args.step,
+                      img_type=args.img_format)
 
 # Run Code
 if __name__ == '__main__':
