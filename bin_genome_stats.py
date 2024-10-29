@@ -188,11 +188,13 @@ def process_chromosome_windows(fai_df, rep_df, prot_df, outd, win_size, win_step
     # Add the frequencies and save to a file
 
     ## Protein File
-    total_prot_win_cnt['AdjFreq'] = total_prot_win_cnt['Count']/max(total_prot_win_cnt['Count'])
+    # total_prot_win_cnt['AdjFreq'] = total_prot_win_cnt['Count']/max(total_prot_win_cnt['Count'])
+    total_prot_win_cnt['AdjFreq'] = total_prot_win_cnt['Count']/np.mean(total_prot_win_cnt['Count'])
     total_prot_win_cnt.to_csv(prot_tsv, sep='\t', index=False)
     ## Repeats (Small)
     total_rep_win_cnt_sm = total_rep_win_cnt[['Chr', 'Window','Count']].copy()
-    total_rep_win_cnt_sm['AdjFreq'] = total_rep_win_cnt_sm['Count']/max(total_rep_win_cnt_sm['Count'])
+    # total_rep_win_cnt_sm['AdjFreq'] = total_rep_win_cnt_sm['Count']/max(total_rep_win_cnt_sm['Count'])
+    total_rep_win_cnt_sm['AdjFreq'] = total_rep_win_cnt_sm['Count']/np.mean(total_rep_win_cnt_sm['Count'])
     total_rep_win_cnt_sm.to_csv(reps_tsv, sep='\t', index=False)
     ## Repeats (Detailed)
     reps_details_tsv = f'{outd}/chr_reps_win.detailed.tsv'
