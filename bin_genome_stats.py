@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import sys, os, argparse, datetime, gzip
 import numpy as np
-import pandas as pd
+# import pandas as pd
 
 # Some constants
 PROG = sys.argv[0].split('/')[-1]
@@ -16,13 +16,13 @@ def parse_args(prog=PROG):
                    help='(str) Path to genome index in FAI format.')
     # TODO: set this to a single input in BED format.
     # TODO: Generate a basename for the outputs.
-    p.add_argument('--rep-tsv', required=True, help='Repeat position table')
-    p.add_argument('--prot-gff', required=True, help='Protein position table/GFF file')
+    # p.add_argument('--rep-tsv', required=True, help='Repeat position table')
+    # p.add_argument('--prot-gff', required=True, help='Protein position table/GFF file')
     p.add_argument('-o', '--out-dir', required=False, default='.',
                    help='(str) Path to output directory [default=.].')
-    p.add_argument('--win-size', required=False, default=WIN_SIZE, type=float,
+    p.add_argument('-s', '--win-size', required=False, default=WIN_SIZE, type=float,
                    help=f'(int/float) Size of windows in bp [default {WIN_SIZE}].')
-    p.add_argument('--win-step', required=False, default=WIN_STEP, type=float,
+    p.add_argument('-t', '--win-step', required=False, default=WIN_STEP, type=float,
                    help=f'(int/float) Step of windows in bp [default {WIN_STEP}].')
     p.add_argument('-m', '--min-len', required=False, default=MIN_CHR_LEN,
                    type=float, help=f'(int/float) Minimum chromosome size in bp [default {MIN_CHR_LEN}]')
@@ -31,8 +31,8 @@ def parse_args(prog=PROG):
     assert args.win_size > args.win_step
     assert args.min_len > args.win_size
     assert os.path.exists(args.fai)
-    assert os.path.exists(args.rep_tsv)
-    assert os.path.exists(args.prot_gff)
+    # assert os.path.exists(args.rep_tsv)
+    # assert os.path.exists(args.prot_gff)
     assert os.path.exists(args.out_dir)
     args.out_dir = args.out_dir.rstrip('/')
     # Check the lengths
@@ -61,6 +61,8 @@ def set_windows_from_fai(fai, window_size=WIN_SIZE, window_step=WIN_STEP, min_ch
     '''
     assert window_step > 0
     genome_window_intervals = dict()
+    seq_lens = dict()
+    n_seqs = 0
     with open(fai) as fh:
         for line in fh:
             if line.startswith('#'):
@@ -72,11 +74,19 @@ def set_windows_from_fai(fai, window_size=WIN_SIZE, window_step=WIN_STEP, min_ch
             if not fields[1].isnumeric():
                 sys.exit('Error: column two of the FAI must be a number with the length of the sequence.')
             seq_len = int(fields[1])
+            n_seqs += 1
             if seq_len < min_chr_size:
                 continue
+            # Prepate the windows
             windows = calculate_chr_window_intervals(seq_len, window_size, window_step)
             genome_window_intervals[seq_id] = windows
-    print(f'\nGenerated window intervals for {len(genome_window_intervals):,} chromosomes/scaffolds.', flush=True)
+            # Set the lengths for future logs
+            seq_lens[seq_id] = seq_len
+    # Report some stats on the windows
+    print(f'\nRead {n_seqs:,} total records from the FAI file.\nGenerated window intervals for {len(genome_window_intervals):,} chromosomes/scaffolds:', flush=True)
+    for chr in genome_window_intervals:
+        print(f'    {chr}: {seq_lens[chr]:,} bp; {len(genome_window_intervals[chr]):,} windows')
+
     return genome_window_intervals
 
 def init_windows_dictionary(genome_window_intervals):
@@ -297,18 +307,21 @@ def main():
     args = parse_args()
     # Initialize script
     print(f'{PROG} started on {date()} {time()}.')
-    print(f'    Min Chrom Size (bp): {args.min_length:,}')
-    print(f'    Window Size (bp): {args.window_size:,}')
-    print(f'    Window Step (bp): {args.window_step:,}', flush=True)
-    # Load fai
-    fai = load_fai(args.fai, args.min_len)
-    # Load repeats  
-    reps = load_reps(args.rep_tsv, fai)
-    # Load proteins
-    prot = load_prots(args.prot_gff, fai)
+    print(f'    Min Chrom Length: {int(args.min_len):,} bp')
+    print(f'    Window Size: {int(args.win_size):,} bp')
+    print(f'    Window Step: {int(args.win_step):,} bp', flush=True)
 
-    # Process all chromosomes
-    process_chromosome_windows(fai, reps, prot, args.out_dir, args.win_size, args.win_step)
+    # Get windows from the fai
+    genome_window_intervals = set_windows_from_fai(args.fai, args.win_size, args.win_step, args.min_len)
+    # # Load fai
+    # fai = load_fai(args.fai, args.min_len)
+    # # Load repeats  
+    # reps = load_reps(args.rep_tsv, fai)
+    # # Load proteins
+    # prot = load_prots(args.prot_gff, fai)
+
+    # # Process all chromosomes
+    # process_chromosome_windows(fai, reps, prot, args.out_dir, args.win_size, args.win_step)
 
     print(f'\n{PROG} finished on {date()} {time()}.')
 
