@@ -8,6 +8,7 @@ PROG = sys.argv[0].split('/')[-1]
 MIN_CHR_LEN = 1_000_000
 WIN_SIZE = 100_000
 WIN_STEP = 10_000
+MIN_SPAN = 1
 NAME = 'binned_genome_stats'
 
 def parse_args(prog=PROG):
@@ -31,6 +32,8 @@ def parse_args(prog=PROG):
                    help=f'(int/float) Step of windows in bp [default {WIN_STEP:,}].')
     p.add_argument('-m', '--min-len', required=False, default=MIN_CHR_LEN,
                    type=float, help=f'(int/float) Minimum chromosome size in bp [default {MIN_CHR_LEN:,}]')
+    p.add_argument('-p', '--min-span', required=False, type=float, default=MIN_SPAN,
+                   help=f'(int/float) Minimum genomic span in bp required to keep an element from the input BED file [default={MIN_SPAN:,}].')
     # Check inputs
     args = p.parse_args()
     assert args.win_size > args.win_step
@@ -48,7 +51,39 @@ def parse_args(prog=PROG):
         sys.exit(f"Error: Min chromosome length ({args.min_len}) must be > 0.")
     if not args.win_size >= args.win_step:
         sys.exit(f"Error: Window size ({args.win_size}) must be >= than window step ({args.win_step}).")
+    if not args.min_span > 0:
+        sys.exit(f"Error: Min genomic window span ({args.min_span}) must be > 0.")
     return args
+
+
+class GenomicWindow():
+    def __init__(self, chromosome, start_bp, end_bp):
+        # Check the input coordinates
+        assert type(start_bp) in {int, float}
+        assert type(end_bp) in {int, float}
+        assert end_bp > start_bp
+        # Define base attributes
+        self.chr = chromosome
+        self.sta = start_bp
+        self.end = end_bp
+        self.mid = (end_bp-start_bp)+start_bp
+        # Window ID; <chrom ID>:<position>, e.g., chr01:123456
+        self.wid = f'{chromosome}:{int(self.mid)}'
+        # Initialize the tallies
+        self.n_elements = 0  # Number of elements in the window
+        self.n_bases = 0     # Number of bases covered by elements
+    def __str__(self):
+        row = f'{self.wid} {self.chr} {self.sta} {self.end} {self.n_bases} {self.n_elements}'
+        return row
+    def find_overlapping_bps(self, target_start, target_end):
+        assert type(target_start) in {int, float}
+        assert type(target_end) in {int, float}
+        assert target_end > target_start
+        target = set(range(int(target_start), int(target_end)))
+        window = set(range(int(self.sta), int(self.end)))
+        overlap = window.intersection(target)
+        return overlap
+
 
 def date():
     '''Print the current date in YYYY-MM-DD format.'''
@@ -82,7 +117,7 @@ def set_windows_from_fai(fai, window_size=WIN_SIZE, window_step=WIN_STEP, min_ch
             if seq_len < min_chr_size:
                 continue
             # Prepate the windows
-            windows = calculate_chr_window_intervals(seq_len, window_size, window_step)
+            windows = calculate_chr_window_intervals(seq_id, seq_len, window_size, window_step)
             genome_window_intervals[seq_id] = windows
             # Set the lengths for future logs
             seq_lens[seq_id] = seq_len
@@ -112,7 +147,7 @@ def init_windows_dictionary(genome_window_intervals):
     return windows_dict
 
 
-def calculate_chr_window_intervals(chr_len, window_size=WIN_SIZE, window_step=WIN_STEP):
+def calculate_chr_window_intervals(chr_id, chr_len, window_size=WIN_SIZE, window_step=WIN_STEP):
     '''
     Calculate the window intervals for a given Chromosome length
     '''
@@ -122,13 +157,14 @@ def calculate_chr_window_intervals(chr_len, window_size=WIN_SIZE, window_step=WI
     window_start = 0
     window_end = window_size
     while window_end < (chr_len+window_step):
-        windows.append((window_start, window_end))
+        genomic_window = GenomicWindow(chr_id, window_start, window_end)
+        windows.append(genomic_window)
         window_start += window_step
         window_end += window_step
     return windows
 
 
-def parse_bed(in_bed_f, genomic_windows):
+def parse_bed(in_bed_f, genomic_windows, min_span=MIN_SPAN):
     '''
     Parse the input bed file and tally elements in the windows.
     '''
@@ -137,7 +173,8 @@ def parse_bed(in_bed_f, genomic_windows):
     print(f'\nParsing input BED file:\n    {in_bed_f}', flush=True)
 
     # Prepare outputs
-    records = 0
+    seen_records = 0
+    kept_records = 0
     with open(in_bed_f) as fh:
         for i, line in enumerate(fh):
             line = line.strip('\n')
@@ -148,7 +185,7 @@ def parse_bed(in_bed_f, genomic_windows):
             # Check for BED integrity (must be at least 3 columns)
             if len(fields) < 3:
                 sys.exit(f'Error: Mis-formatted BED file. Must contain at least 3 columns (line {i+1}).')
-            # Set the three needed fields in the BED
+            # Set the three needed fields in the BED, the rest are optional and can be ignored.
             chromosome = fields[0]
             start_bp = fields[1]
             end_bp = fields[2]
@@ -158,11 +195,42 @@ def parse_bed(in_bed_f, genomic_windows):
             start_bp = int(start_bp)
             end_bp = int(end_bp)
             # End column must be larger than start column
+            # BED is 0-based, inclusive for start, exclusive for end, so
+            # even 1-bp intervals should follow this convention.
             if not end_bp > start_bp:
                 sys.exit(f'Error: Mis-formatted BED. End coordinate (column 3) must be larger than start coordinate (column 2) (line {i+1}).')
-            # print(chromosome, start_bp, end_bp)
+            seen_records += 1
+            # Skip entries that are not in the window chromosomes
+            if chromosome not in genomic_windows:
+                continue
+            # Skip entries that are under the desired length (span)
+            if (end_bp-start_bp) < min_span:
+                continue
+            # Add the record to the windows dictionary
+            for win_i in range(len(genomic_windows[chromosome])):
+                curr_window = genomic_windows[chromosome][win_i]
+                assert isinstance(curr_window, GenomicWindow)
+                # If the current window is before the target record, keep moving up the windows
+                if curr_window.end < start_bp:
+                    continue
+                # If the current window is after the target record, stop.
+                if curr_window.sta > end_bp:
+                    break
+                # Determine the range of the overlap.
+                overlap = curr_window.find_overlapping_bps(start_bp, end_bp)
+                print(len(overlap))
+                # TODO: Add this to the tally
+
+
+
+
+            # Add this entry to the window dictionary
+            kept_records += 1
+
+            # print([chromosome, start_bp, end_bp])
             # if i > 20:
             #     break
+    print(f'    Read {seen_records:,} records from input BED file.\n    Kept a total of {kept_records:,} records.', flush=True)
 
  
 
@@ -188,7 +256,7 @@ def main():
     genome_window_intervals = set_windows_from_fai(args.fai, args.win_size, args.win_step, args.min_len)
 
     # Process the input bed
-    parse_bed(args.in_bed, genome_window_intervals)
+    parse_bed(args.in_bed, genome_window_intervals, args.min_span)
     # print(genome_window_intervals)
 
 
