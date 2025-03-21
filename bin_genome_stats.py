@@ -157,13 +157,96 @@ def calculate_chr_window_intervals(chr_id, chr_len, window_size=WIN_SIZE, window
     window_start = 0
     window_end = window_size
     while window_end < (chr_len+window_step):
+        if window_end > chr_len:
+            window_end = chr_len
         genomic_window = GenomicWindow(chr_id, window_start, window_end)
         windows.append(genomic_window)
         window_start += window_step
         window_end += window_step
-        # if window_end > chr_len:
-        #     window_end = chr_len
     return windows
+
+
+def binary_search_windows(chr_windows, target_bp):
+    '''
+    Use a binary search to find the interval where to iterate over
+    the desired chromosome windows.
+    '''
+    low = 0
+    high = len(chr_windows) - 1
+    mid = 0
+    # First, confirm that the target element is within the desired 
+    # range. If not, return None and raise error in next step.
+    if target_bp > chr_windows[-1].end:
+        return None
+    while low <= high:
+        # This divides the chromosome windows into two halves
+        # based on the midpoint of the number of windows. These 
+        # "halves" become smaller as we proportionally slice 
+        # down the chromosome into smaller and smaller chunks.
+        mid = (high + low) // 2
+        # Find the window at the midpoint, this will allow us
+        # to compare our target BP position.
+        curr_window = chr_windows[mid]
+        assert isinstance(curr_window, GenomicWindow)
+        # print(low, mid, high, curr_window)
+        # If the target BP is larger than the midpoint,
+        # ignore the first half of the interval.
+        if curr_window.sta < target_bp:
+            low = mid + 1
+        # Instead, if the target is smaller than the midpoint
+        # position, ignore the second half of the interval
+        elif curr_window.sta > target_bp:
+            high = mid - 1
+        # # Means x is present at midpoint, and this is where we
+        # # can start iterating over subsequent windows.
+        # else:
+        elif curr_window.sta <= target_bp < curr_window.end:
+            print(mid, target_bp, curr_window)
+            return mid
+    # TODO: NOT WORKING
+    # print(mid, target_bp, curr_window)
+    # return mid
+
+def add_bed_record_to_windows(bed_chr, bed_start, bed_end, genomic_windows):
+    '''
+    Add a given BED record to the genomic windows dictionary.
+    '''
+    assert type(genomic_windows) is dict
+    # First, work only on the windows of the target chromosome
+    chr_windows = genomic_windows[bed_chr]
+    # We will traverse the chromosome windows using a binary search
+    # operation (or at least, binary search-like).
+    # These will provide the start index we are going to use to 
+    # iterate over the windows.
+    start_idx = binary_search_windows(chr_windows, bed_start)
+    # print(start_idx, chr_windows[start_idx])
+    if start_idx is None:
+        # Error if the range is not within the chromosome
+        sys.exit(f'Error: Range {bed_start} to {bed_end} not within the range of sequence {bed_chr}.')
+    # Iterate over the chromosome windows starting from the selected 
+    # point. End once the windows move past the range of the record.
+    for win_i in range(start_idx, len(chr_windows)-1):
+        curr_window = chr_windows[win_i]
+        assert isinstance(curr_window, GenomicWindow)
+        # If the current window is before the target record, keep moving 
+        # up the windows. This shouldn't happen, since we did the binary 
+        # search above, but good as a safety net.
+        if curr_window.end < bed_start:
+            continue
+        # If the current window is after the target record, stop.
+        if curr_window.sta > bed_end:
+            break
+        # Determine the range of the overlap.
+        overlap = curr_window.find_overlapping_bps(bed_start, bed_end)
+        # Add this to the tally
+        if len(overlap) > 0:
+            curr_window.n_bases += len(overlap)
+            curr_window.n_elements += 1
+        # Add it back to the original, genome-wide object
+        genomic_windows[bed_chr][win_i] = curr_window
+    # Return the original, genome-wide windows object with the values
+    # of the present record added.
+    return genomic_windows
 
 
 def parse_bed(in_bed_f, genomic_windows, min_span=MIN_SPAN):
@@ -208,28 +291,30 @@ def parse_bed(in_bed_f, genomic_windows, min_span=MIN_SPAN):
             # Skip entries that are under the desired length (span)
             if (end_bp-start_bp) < min_span:
                 continue
-            # Add the record to the windows dictionary
-            for win_i in range(len(genomic_windows[chromosome])):
-                curr_window = genomic_windows[chromosome][win_i]
-                assert isinstance(curr_window, GenomicWindow)
-                # If the current window is before the target record, keep moving up the windows
-                if curr_window.end < start_bp:
-                    continue
-                # If the current window is after the target record, stop.
-                if curr_window.sta > end_bp:
-                    break
-                # Determine the range of the overlap.
-                overlap = curr_window.find_overlapping_bps(start_bp, end_bp)
-                # Add this to the tally
-                if len(overlap) > 0:
-                    curr_window.n_bases += len(overlap)
-                    curr_window.n_elements += 1
-                # Add it back to the original object
-                genomic_windows[chromosome][win_i] = curr_window
+            # Add the present record to the windows dictionary
+            genomic_windows = add_bed_record_to_windows(chromosome, start_bp, end_bp, genomic_windows)
+            # # Add the record to the windows dictionary
+            # for win_i in range(len(genomic_windows[chromosome])):
+            #     curr_window = genomic_windows[chromosome][win_i]
+            #     assert isinstance(curr_window, GenomicWindow)
+            #     # If the current window is before the target record, keep moving up the windows
+            #     if curr_window.end < start_bp:
+            #         continue
+            #     # If the current window is after the target record, stop.
+            #     if curr_window.sta > end_bp:
+            #         break
+            #     # Determine the range of the overlap.
+            #     overlap = curr_window.find_overlapping_bps(start_bp, end_bp)
+            #     # Add this to the tally
+            #     if len(overlap) > 0:
+            #         curr_window.n_bases += len(overlap)
+            #         curr_window.n_elements += 1
+            #     # Add it back to the original object
+            #     genomic_windows[chromosome][win_i] = curr_window
             # Add this entry to the window dictionary
             kept_records += 1
-            # if i > 1000:
-            #     break
+            if i > 10:
+                break
     print(f'    Read {seen_records:,} records from input BED file.\n    Kept a total of {kept_records:,} records.', flush=True)
     return genomic_windows
 
