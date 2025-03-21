@@ -36,7 +36,7 @@ def parse_args(prog=PROG):
                    help=f'(int/float) Minimum genomic span in bp required to keep an element from the input BED file [default={MIN_SPAN:,}].')
     # Check inputs
     args = p.parse_args()
-    assert args.win_size > args.win_step
+    assert args.win_size >= args.win_step
     assert args.min_len > args.win_size
     assert os.path.exists(args.fai)
     assert os.path.exists(args.in_bed)
@@ -64,11 +64,11 @@ class GenomicWindow():
         assert end_bp > start_bp
         # Define base attributes
         self.chr = chromosome
-        self.sta = start_bp
-        self.end = end_bp
-        self.mid = (end_bp-start_bp)+start_bp
+        self.sta = int(start_bp)
+        self.end = int(end_bp)
+        self.mid = int(start_bp+((end_bp-start_bp)/2))
         # Window ID; <chrom ID>:<position>, e.g., chr01:123456
-        self.wid = f'{chromosome}:{int(self.mid)}'
+        self.wid = f'{chromosome}:{self.mid}'
         # Initialize the tallies
         self.n_elements = 0  # Number of elements in the window
         self.n_bases = 0     # Number of bases covered by elements
@@ -80,8 +80,8 @@ class GenomicWindow():
         assert type(target_end) in {int, float}
         assert target_end > target_start
         target = set(range(int(target_start), int(target_end)))
-        window = set(range(int(self.sta), int(self.end)))
-        overlap = window.intersection(target)
+        sites = set(range(int(self.sta), int(self.end)))
+        overlap = sites.intersection(target)
         return overlap
 
 
@@ -161,6 +161,8 @@ def calculate_chr_window_intervals(chr_id, chr_len, window_size=WIN_SIZE, window
         windows.append(genomic_window)
         window_start += window_step
         window_end += window_step
+        # if window_end > chr_len:
+        #     window_end = chr_len
     return windows
 
 
@@ -218,30 +220,18 @@ def parse_bed(in_bed_f, genomic_windows, min_span=MIN_SPAN):
                     break
                 # Determine the range of the overlap.
                 overlap = curr_window.find_overlapping_bps(start_bp, end_bp)
-                print(len(overlap))
-                # TODO: Add this to the tally
-
-
-
-
+                # Add this to the tally
+                if len(overlap) > 0:
+                    curr_window.n_bases += len(overlap)
+                    curr_window.n_elements += 1
+                # Add it back to the original object
+                genomic_windows[chromosome][win_i] = curr_window
             # Add this entry to the window dictionary
             kept_records += 1
-
-            # print([chromosome, start_bp, end_bp])
-            # if i > 20:
+            # if i > 1000:
             #     break
     print(f'    Read {seen_records:,} records from input BED file.\n    Kept a total of {kept_records:,} records.', flush=True)
-
- 
-
-
-
-
-
-
-
-
-
+    return genomic_windows
 
 
 def main():
@@ -256,12 +246,10 @@ def main():
     genome_window_intervals = set_windows_from_fai(args.fai, args.win_size, args.win_step, args.min_len)
 
     # Process the input bed
-    parse_bed(args.in_bed, genome_window_intervals, args.min_span)
-    # print(genome_window_intervals)
-
-
+    genome_window_intervals = parse_bed(args.in_bed, genome_window_intervals, args.min_span)
 
     print(f'\n{PROG} finished on {date()} {time()}.')
+
 
 # Run Code
 if __name__ == '__main__':
