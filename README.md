@@ -23,7 +23,7 @@ $ python3 cairo_genome_stats_plots/bin_genome_stats.py -h
     -s, --win-size WIN_SIZE
                           (int/float) Size of windows in bp [default 100,000].
     -t, --win-step WIN_STEP
-                          (int/float) Step of windows in bp [default 10,000].
+                          (int/float) Step of windows in bp [default 50,000].
     -m, --min-len MIN_LEN
                           (int/float) Minimum chromosome size in bp [default 
                           1,000,000]

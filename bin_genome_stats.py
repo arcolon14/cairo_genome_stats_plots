@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 import sys, os, argparse, datetime, gzip
 import numpy as np
-# import pandas as pd
 
 # Some constants
 PROG = sys.argv[0].split('/')[-1]
 MIN_CHR_LEN = 1_000_000
 WIN_SIZE = 100_000
-WIN_STEP = 10_000
+WIN_STEP = 50_000
 MIN_SPAN = 1
 
 def parse_args(prog=PROG):
