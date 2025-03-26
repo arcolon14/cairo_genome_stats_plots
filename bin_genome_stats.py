@@ -293,7 +293,7 @@ def extract_elements_from_input_bed(in_bed_f, genomic_windows, min_span=MIN_SPAN
             genomic_windows = add_bed_record_to_windows(chromosome, start_bp, end_bp, genomic_windows)
             # Add this entry to the window dictionary
             kept_records += 1
-    print(f'    Read {seen_records:,} records from input BED file.\n    Kept a total of {kept_records:,} records.', flush=True)
+    print(f'\n    Read {seen_records:,} records from input BED file.\n    Kept a total of {kept_records:,} records.', flush=True)
     return genomic_windows
 
 
@@ -321,6 +321,9 @@ def generate_genome_wide_averages(genomic_windows):
     # Now calculate the averages with the populated lists
     n_elements_mean = np.mean(n_elements_mean)
     bp_prop_mean = np.mean(bp_prop_mean)
+    # Report to log.
+    print(f'\n    Genome-wide mean number of elements in a window: {n_elements_mean:,.6g}')
+    print(f'    Genome-wide mean proportion of target bases in a window: {bp_prop_mean:,.6g}')
     return n_elements_mean, bp_prop_mean
 
 
@@ -350,11 +353,11 @@ def process_windows_output(genomic_windows, output_dir, basename):
                 # Then process the rest and add to the list
                 # Number of elements per window
                 elements_adj = window.n_elements/n_elements_mean
-                row += f'\t{window.n_elements}\t{elements_adj:0.8f}\t'
+                row += f'\t{window.n_elements}\t{elements_adj:0.8g}\t'
                 # Proportion of elements in window
                 prop_elements = len(window.sites)/(window.end-window.sta)
                 prop_elements_adj = prop_elements/bp_prop_mean
-                row += f'{prop_elements:0.8f}\t{prop_elements_adj:0.8f}'
+                row += f'{prop_elements:0.8g}\t{prop_elements_adj:0.8g}'
                 fh.write(f'{row}\n')
 
 
