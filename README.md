@@ -135,20 +135,25 @@ Info on columns:
 | `Chrom`         | Name of the chromosome/scaffold sequence. |
 | `StartBP`       | Start coordinate of the window in basepairs. |
 | `EndBP`         | End coordinate of the window in basepairs. |
-| `MidBP`         | Start coordinate of the window in basepairs. |
+| `MidBP`         | Midpoint coordinate of the window in basepairs. |
 | `ElementsN`     | Number of elements seen in the window. |
-| `ElementsAdj`*  | Adjusted number of elements in the window. |
-| `PropSites`     | Proportion of sites in the window corresponding to the target elements. |
-| `PropSitesAdj`* | Adjusted Proportion of sites in the window corresponding to the target elements.|
+| `ElementsAdj`<sup>1</sup> | Adjusted number of elements in the window, according to the genome-wide average. |
+| `PropSites`<sup>2</sup> | Proportion of sites in the window corresponding to the target elements. Sites belonging to overlapping elements are counted once. |
+| `PropSitesAdj`<sup>1</sup> | Adjusted Proportion of sites in the window corresponding to the target elements, according to the genome-wide average. |
 
-*Note on the adjusted values: For standardization purposes, the adjusted values 
+<sup>1</sup>For standardization purposes, the adjusted values 
 correspond to the value of the window divided by the genome-wide mean, i.e., the 
-`PropSitesAdj` describes the proportion of target sites in a given window divived 
-by the genome-wide average. Values greater than 1 describe sites with higher than 
-average values, while values smaller than 1 describe window with smaller than 
-average values. For example, a `PropSitesAdj` of 2 indicates that the given window 
-contains twice as many sites corresponding to the target element than the genomic 
-average.
+`ElementsAdj` describes the number of elements of interest observed in a window,
+scaled by the genome-wide average. Values greater than 1 describe sites with 
+higher than average values, while values smaller than 1 describe window with smaller 
+than average values. For example, a `ElementsAdj` of 2 indicates that the given 
+window contains twice as elements than the genome-wide average.
+
+<sup>2</sup>The `PropSites` column describes the proportion of sites in a window 
+corresponding to the elements of interest. In other words, if in the span of a 
+100 Kbp window, 30 Kbp of those sites are in the span of an element of interest 
+(e.g., genes), then the window will have a `PropSites` value of 0.3. Similar to 
+`ElementsAdj`, this value is then scaled by the genome-wide average in `PropSitesAdj`.
 
 ## Making the plots
 
