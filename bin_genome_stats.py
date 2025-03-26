@@ -323,7 +323,7 @@ def generate_genome_wide_averages(genomic_windows):
     bp_prop_mean = np.mean(bp_prop_mean)
     # Report to log.
     print(f'\n    Genome-wide mean number of elements in a window: {n_elements_mean:,.6g}')
-    print(f'    Genome-wide mean proportion of target bases in a window: {bp_prop_mean:,.6g}')
+    print(f'    Genome-wide mean proportion of target bases in a window: {bp_prop_mean:,.6g}', flush=True)
     return n_elements_mean, bp_prop_mean
 
 
@@ -369,7 +369,7 @@ def main():
     print(f'    Window Size: {int(args.win_size):,} bp')
     print(f'    Window Step: {int(args.win_step):,} bp', flush=True)
     if args.min_span > 1: 
-        print(f'    Min Size of Input Element in BED: {int(args.min_span):,} bp')
+        print(f'    Min Size of Input Element in BED: {int(args.min_span):,} bp', flush=True)
 
     # Get windows from the fai
     genome_window_intervals = set_windows_from_fai(args.fai, args.win_size, args.win_step, args.min_len)
