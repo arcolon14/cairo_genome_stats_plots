@@ -9,7 +9,6 @@ MIN_CHR_LEN = 1_000_000
 WIN_SIZE = 100_000
 WIN_STEP = 10_000
 MIN_SPAN = 1
-NAME = 'binned_genome_stats'
 
 def parse_args(prog=PROG):
     '''Set and verify command line options.'''
@@ -18,12 +17,8 @@ def parse_args(prog=PROG):
                    help='(str) Path to genome index in FAI format.')
     p.add_argument('-b', '--in-bed', required=True,
                    help='(str) Path to input BED file describing the windows to be tallied.')
-    p.add_argument('-n', '--basename', required=False, default=NAME,
-                   help=f'(str) Basename of output files [default={NAME}].')
-    # TODO: set this to a single input in BED format.
-    # TODO: Generate a basename for the outputs.
-    # p.add_argument('--rep-tsv', required=True, help='Repeat position table')
-    # p.add_argument('--prot-gff', required=True, help='Protein position table/GFF file')
+    p.add_argument('-n', '--basename', required=False, default=None,
+                   help='(str) Basename of output files [default=BED Basename].')
     p.add_argument('-o', '--out-dir', required=False, default='.',
                    help='(str) Path to output directory [default=.].')
     p.add_argument('-s', '--win-size', required=False, default=WIN_SIZE, type=float,
@@ -42,6 +37,9 @@ def parse_args(prog=PROG):
     assert os.path.exists(args.in_bed)
     assert os.path.exists(args.out_dir)
     args.out_dir = args.out_dir.rstrip('/')
+    # Proceess the basename if not provided
+    if args.basename is None:
+        args.basename = args.in_bed.rstrip('.bed')
     # Check the lengths
     if not args.win_size > 0:
         sys.exit(f"Error: size of windows ({args.win_size}) must be > 0.")
@@ -72,8 +70,9 @@ class GenomicWindow():
         # Initialize the tallies
         self.n_elements = 0  # Number of elements in the window
         self.n_bases = 0     # Number of bases covered by elements
+        self.sites = set()   # Set of the sites coveraged by the elements (to handle overlaps)
     def __str__(self):
-        row = f'{self.wid} {self.chr} {self.sta} {self.end} {self.n_bases} {self.n_elements}'
+        row = f'{self.wid} {self.chr} {self.sta} {self.end} {self.n_bases} {self.n_elements} {len(self.sites)}'
         return row
     def find_overlapping_bps(self, target_start, target_end):
         assert type(target_start) in {int, float}
@@ -240,6 +239,7 @@ def add_bed_record_to_windows(bed_chr, bed_start, bed_end, genomic_windows):
         if len(overlap) > 0:
             curr_window.n_bases += len(overlap)
             curr_window.n_elements += 1
+            curr_window.sites.update(list(overlap))
         # Add it back to the original, genome-wide object
         genomic_windows[bed_chr][win_i] = curr_window
     # Return the original, genome-wide windows object with the values
@@ -247,7 +247,7 @@ def add_bed_record_to_windows(bed_chr, bed_start, bed_end, genomic_windows):
     return genomic_windows
 
 
-def parse_bed(in_bed_f, genomic_windows, min_span=MIN_SPAN):
+def extract_elements_from_input_bed(in_bed_f, genomic_windows, min_span=MIN_SPAN):
     '''
     Parse the input bed file and tally elements in the windows.
     '''
@@ -297,6 +297,67 @@ def parse_bed(in_bed_f, genomic_windows, min_span=MIN_SPAN):
     return genomic_windows
 
 
+def generate_genome_wide_averages(genomic_windows):
+    '''
+    Iterate over all the populated windows and generate the
+    genome-wide of the proportion of bases covered and number
+    of elements per-window.
+    '''
+    n_elements_mean = list() # Average number of elements per window
+    bp_prop_mean = list()    # Average proportion of bases of the element per window
+    # Loop over all the windows...
+    for chr in genomic_windows:
+        for window in genomic_windows[chr]:
+            assert isinstance(window, GenomicWindow)
+            # The number of elements just gets appended as is. It is just a tally
+            n_elements_mean.append(window.n_elements)
+            # For the proportion, it has to be calculated based on the number of bases covered and the length ofg the window.
+            # TODO: mean of non-zero elements???
+            window_len = window.end - window.sta
+            n_sites = len(window.sites)
+            assert n_sites <= window_len, f'{window}'
+            prop_mean = n_sites/window_len
+            bp_prop_mean.append(prop_mean)
+    # Now calculate the averages with the populated lists
+    n_elements_mean = np.mean(n_elements_mean)
+    bp_prop_mean = np.mean(bp_prop_mean)
+    return n_elements_mean, bp_prop_mean
+
+
+def process_windows_output(genomic_windows, output_dir, basename):
+    '''
+    Process the populated genomic windows, calculate averages, and
+    export outputs.
+    '''
+    # Generate the output file
+    outf = f'{output_dir}/{basename}.binned_genome_stats.tsv'
+    print(f'\nGenerating output to:\n    {outf}', flush=True)
+    # Get the genome-wide mean of the proportion and number of 
+    # elements per window.
+    n_elements_mean, bp_prop_mean = generate_genome_wide_averages(genomic_windows)
+    # Generate the output file handle
+    with open(outf, 'w') as fh:
+        header = ['#Chrom', 'StartBP', 'EndBP', 'MidBP',
+                  'ElementsN', 'ElementsAdj', 'PropSites', 'PropSitesAdj']
+        header = '\t'.join(header)
+        fh.write(f'{header}\n')
+        # Loop over the windows and write to file
+        for chr in genomic_windows:
+            for window in genomic_windows[chr]:
+                assert isinstance(window, GenomicWindow)
+                # Start with the four standard positional entries
+                row = f'{window.chr}\t{window.sta}\t{window.end}\t{window.mid}'
+                # Then process the rest and add to the list
+                # Number of elements per window
+                elements_adj = window.n_elements/n_elements_mean
+                row += f'\t{window.n_elements}\t{elements_adj:0.8f}\t'
+                # Proportion of elements in window
+                prop_elements = len(window.sites)/(window.end-window.sta)
+                prop_elements_adj = prop_elements/bp_prop_mean
+                row += f'{prop_elements:0.8f}\t{prop_elements_adj:0.8f}'
+                fh.write(f'{row}\n')
+
+
 def main():
     print(f'{PROG} started on {date()} {time()}.')
     args = parse_args()
@@ -304,13 +365,19 @@ def main():
     print(f'    Min Chrom Length: {int(args.min_len):,} bp')
     print(f'    Window Size: {int(args.win_size):,} bp')
     print(f'    Window Step: {int(args.win_step):,} bp', flush=True)
+    if args.min_span > 1: 
+        print(f'    Min Size of Input Element in BED: {int(args.min_span):,} bp')
 
     # Get windows from the fai
     genome_window_intervals = set_windows_from_fai(args.fai, args.win_size, args.win_step, args.min_len)
 
     # Process the input bed
-    genome_window_intervals = parse_bed(args.in_bed, genome_window_intervals, args.min_span)
+    genome_window_intervals = extract_elements_from_input_bed(args.in_bed, genome_window_intervals, args.min_span)
 
+    # Generate a new output file
+    process_windows_output(genome_window_intervals, args.out_dir, args.basename)
+
+    # Done!
     print(f'\n{PROG} finished on {date()} {time()}.')
 
 
