@@ -11,6 +11,7 @@ SCALE = 1_000_000
 STEP = 5_000_000
 IMG_WIDTH = 500
 IMG_HEIGHT = 500
+FONT_SIZE = 18
 
 #
 # Command line options
@@ -314,7 +315,8 @@ def three_color_gradient(rgb1, rgb2, rgb3, mean, alpha, max_scale):
 #
 # Class to set the settings to the image output
 class Image:
-    def __init__(self, height=500, width=500, font_size=18, img_type='pdf', offset=25, edge=15):
+    def __init__(self, height=IMG_HEIGHT, width=IMG_WIDTH, font_size=FONT_SIZE, 
+                 img_type='pdf', offset=25, edge=15):
         assert offset > edge
         # General Plot info
         self.height = height
@@ -459,19 +461,19 @@ def process_chromosomes(chromosomes, chrom_order, wins_dict, image, context, max
 #
 # Draw the Scale
 #
-def draw_scale(image, context, mean_reps, max_reps):
+def draw_scale(image, context, mean_val, max_val):
     assert isinstance(image, Image)
     # Boundaries
-    x1 = image.max_x*0.945
-    x2 = image.max_x*0.995
+    x1 = image.max_x*0.985
+    x2 = image.max_x*1.015
     y1 = image.max_tck*0.795
     y2 = image.max_tck*0.995
     # Loop over the color space
     s=0.005
-    for p in np.arange(0,(max_reps+s),s):
-        (r, g, b) = three_color_gradient(colors[0], colors[1], colors[2], mean_reps, p, max_reps)
+    for p in np.arange(0,(max_val+s),s):
+        (r, g, b) = three_color_gradient(colors[0], colors[1], colors[2], mean_val, p, max_val)
         key_h = y2-y1
-        yp = y2-(key_h*(p/max_reps))
+        yp = y2-(key_h*(p/max_val))
         context.set_dash([])
         context.move_to(x1, yp)
         context.line_to(x2, yp)
@@ -489,49 +491,89 @@ def draw_scale(image, context, mean_reps, max_reps):
     context.set_source_rgb(col.r, col.g, col.b)
     # context.stroke_preserve()
     context.stroke()
-    # col = ChromColors('fill')
-    # context.set_source_rgb(col.r, col.g, col.b)
-    # context.fill()
+    col = ChromColors('fill')
+    context.set_source_rgb(col.r, col.g, col.b)
+    context.fill()
 
     #
     # Add labels
     #
-    # Top Label
-    # lab1 = f'{float(round(max_reps+s))}'
-    lab1 = f'{round(max_reps+s)}x'
-    label_height = context.text_extents(lab1)[3]
-    label_width  = context.text_extents(lab1)[2]
-    lab_x = x1-(label_width*1.25)
-    lab_y = y1+(label_height/2)
-    txt_col = ChromColors('text')
-    context.move_to(lab_x, lab_y)
-    context.set_source_rgb(txt_col.r, txt_col.g, txt_col.b)
-    context.show_text(lab1)
-    # Bottom Label
-    # lab2 = f'{0.0}x'
-    lab2 = '0x'
-    label_height = context.text_extents(lab2)[3]
-    label_width  = context.text_extents(lab2)[2]
-    lab_x = x1-(label_width*1.25)
-    lab_y = y2+(label_height/2)
-    txt_col = ChromColors('text')
-    context.move_to(lab_x, lab_y)
-    context.set_source_rgb(txt_col.r, txt_col.g, txt_col.b)
-    context.show_text(lab2)
-    # Middle label
-    # labm = f'{1.0}x'
-    labm = f'1x'
-    label_height = context.text_extents(labm)[3]
-    label_width  = context.text_extents(labm)[2]
-    # TODO: 
-    # lab_x = x1-(label_width*1.25)
-    key_h = y2-y1
-    lab_y = y2-(key_h*(mean_reps/max_reps))+(label_height/2)
+    label_ticks = list()
+    # Add additional ticks, as needed
+    for tick in [0.0, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0]:
+        # Dont add the 0.5 if the max is > 5, for space purposes
+        if tick == 0.5:
+            if max_val > 5:
+                continue
+        # Dont add the 2.0 if the max is > 10, for space purposes
+        if tick == 2.0:
+            if max_val > 10:
+                continue
+        if max_val > tick:
+            label_ticks.append(float(tick))
+    # Add the max tick
+    max_val = float(round(max_val+s))
+    label_ticks.append(max_val)
+    # Decrease the font size for the labels
+    context.set_font_size((image.font)*0.5) 
+    # Plot the axis ticks
+    for tick in label_ticks:
+        lab = f'{tick} -'
+        label_height = context.text_extents(lab)[3]
+        label_width = context.text_extents(lab)[2]
+        lab_x = (x1*0.995)-label_width
+        lab_y = y2-((y2-y1)*(tick/max_val))+(label_height/2)
+        if tick == max_val:
+            lab_y = y1+(label_height/2)
+        elif tick == 0:
+            lab_y = y2+(label_height/2)
+        txt_col = ChromColors('text')
+        context.move_to(lab_x, lab_y)
+        context.set_source_rgb(txt_col.r, txt_col.g, txt_col.b)
+        context.show_text(lab)
+    
+    # Reset font size
+    context.set_font_size(image.font)
+
+    # # Top Label
+    # # lab1 = f'{float(round(max_val+s))}'
+    # lab1 = f'{round(max_val+s)}x'
+    # label_height = context.text_extents(lab1)[3]
+    # label_width  = context.text_extents(lab1)[2]
+    # # lab_x = x1-(label_width*1.25)
+    # lab_x = (x1*0.995)-label_width
     # lab_y = y1+(label_height/2)
-    txt_col = ChromColors('text')
-    context.move_to(lab_x, lab_y)
-    context.set_source_rgb(txt_col.r, txt_col.g, txt_col.b)
-    context.show_text(labm)
+    # txt_col = ChromColors('text')
+    # context.move_to(lab_x, lab_y)
+    # context.set_source_rgb(txt_col.r, txt_col.g, txt_col.b)
+    # context.show_text(lab1)
+    # # Bottom Label
+    # # lab2 = f'{0.0}x'
+    # lab2 = '0x'
+    # label_height = context.text_extents(lab2)[3]
+    # label_width  = context.text_extents(lab2)[2]
+    # # lab_x = x1-(label_width*1.25)
+    # lab_x = (x1*0.995)-label_width
+    # lab_y = y2+(label_height/2)
+    # txt_col = ChromColors('text')
+    # context.move_to(lab_x, lab_y)
+    # context.set_source_rgb(txt_col.r, txt_col.g, txt_col.b)
+    # context.show_text(lab2)
+    # # Middle label
+    # # labm = f'{1.0}x'
+    # labm = f'1x'
+    # label_height = context.text_extents(labm)[3]
+    # label_width  = context.text_extents(labm)[2]
+    # # TODO: 
+    # # lab_x = x1-(label_width*1.25)
+    # # lab_x = x1-(label_width)
+    # key_h = y2-y1
+    # lab_y = y2-(key_h*(mean_val/max_val))+(label_height/2)
+    # # lab_y = y1+(label_height/2)
+    # txt_col = ChromColors('text')
+    # context.move_to(lab_x, lab_y)
+    # context.set_source_rgb(txt_col.r, txt_col.g, txt_col.b)
+    # context.show_text(labm)
 
 # Add title to the figure
 def draw_title(image, context, title):
