@@ -383,12 +383,15 @@ def plot_gridlines(chromosomes, image, context, scale=SCALE, step=STEP):
 #
 # Process the chromosomes
 #
-def process_chromosomes(chromosomes, chrom_order, wins_dict, image, context, max_grd, mean_reps, max_reps, scale=SCALE, step=STEP):
+def process_chromosomes(chromosomes, chrom_order, wins_dict, image, 
+                        context, max_grd, mean_val, max_val, 
+                        plot_type='proportion', scale=SCALE, step=STEP):
     assert type(chromosomes) is dict
     assert isinstance(list(chromosomes.values())[0], Chromosome)
     assert type(wins_dict) is dict
     assert isinstance(image, Image)
     assert len(chromosomes) == len(chrom_order)
+    assert plot_type in ['proportion', 'count']
 
     # Plot the chromosomes and values
     chr_step = (image.max_tck-image.min_tck)/len(chromosomes)
@@ -406,21 +409,31 @@ def process_chromosomes(chromosomes, chrom_order, wins_dict, image, context, max
         y1 = y+(1*min_step)
         y2 = y+(3*min_step)
 
-        # # Extract the windows for the current chromosome
-        # windows = wins_dict.get(chromosome, [])
-        # if len(windows) > 0:
-        #     for window in windows:
-        #         assert isinstance(window, WindowStat)
-        #         if window.bp > bp:
-        #             continue
-        #         x = image.scale_bp_to_pix(window.bp, max_grd)
-        #         (r, g, b) = three_color_gradient(colors[0], colors[1], colors[2], mean_reps,
-        #                                          window.val, max_reps)
-        #         context.set_dash([])
-        #         context.move_to(x, y1)
-        #         context.line_to(x, y2)
-        #         context.set_source_rgb(r, g, b)
-        #         context.stroke()
+        # Extract the windows for the current chromosome
+        for window in wins_dict[chromosome]:
+            assert isinstance(window, WindowStat)
+            if window.mid > bp:
+                continue
+            # Start x for the window
+            xs = image.scale_bp_to_pix(window.start, max_grd)
+            # End x for the window
+            xe = image.scale_bp_to_pix(window.end, max_grd)
+            # Select the corresponding value type to plot
+            value = window.proportion
+            if plot_type == 'count':
+                value = window.n_elements
+            # Scale the colors based on the distribution of values
+            (r, g, b) = three_color_gradient(colors[0], colors[1], colors[2],
+                                             mean_val, value, max_val)
+            # Plot a polygon for the given window
+            context.set_dash([])
+            context.move_to(xs, y1)
+            context.line_to(xe, y1)
+            context.line_to(xe, y2)
+            context.line_to(xs, y2)
+            context.close_path()
+            context.set_source_rgb(r, g, b)
+            context.fill()
 
         # Add the Chromosome len boxes
         context.set_dash([])
@@ -580,7 +593,7 @@ def draw_genome_stats(outf, chromosomes, chrom_order, win_val_dict,
     # Process the chromosomes
     process_chromosomes(chromosomes, chrom_order, win_val_dict, 
                         image, context, max_grd, mean_val, 
-                        max_val, scale, step)
+                        max_val, plot_type, scale, step)
     # Plot the scale
     draw_scale(image, context, mean_val, max_val)
     # Add title
