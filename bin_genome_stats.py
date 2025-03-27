@@ -38,7 +38,7 @@ def parse_args(prog=PROG):
     args.out_dir = args.out_dir.rstrip('/')
     # Proceess the basename if not provided
     if args.basename is None:
-        args.basename = args.in_bed.rstrip('.bed')
+        args.basename = args.in_bed.rstrip('.bed').split('/')[-1]
     # Check the lengths
     if not args.win_size > 0:
         sys.exit(f"Error: size of windows ({args.win_size}) must be > 0.")
