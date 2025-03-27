@@ -42,7 +42,7 @@ def parse_args():
                    help='(str) Image output format [default=pdf]')
     # Check inputs
     args = p.parse_args()
-    assert args.scale >= args.min_len
+    # assert args.scale >= args.min_len
     if args.chroms is not None:
         assert os.path.exists(args.chroms)
     assert os.path.exists(args.fai)
@@ -124,8 +124,8 @@ def process_chromosome_info(fai_f, chrom_order_f, min_len=MIN_CHR_LEN):
         chromosome = fai_bak.get(chrom, None)
         if chromosome is None:
             sys.exit(f"Error: {chrom} not found in FAI entries larger than {min_len:,}.")
-            fai[chrom] = chromosome
-    # TODO: This filtering here is wrong...
+        assert isinstance(chromosome, Chromosome)
+        fai[chrom] = chromosome
     # Report to log
     print(f'    Kept {len(fai):,} chromosome objects after filtering.', flush=True)
     return fai, chrom_order
