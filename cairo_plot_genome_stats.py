@@ -170,8 +170,6 @@ def load_window_stats_file(win_f, chromosomes):
     ## Initialize the output dictionary based on the read chromosomes
     print(f'\nReading the input windows file:\n    {win_f}', flush=True)
     wins_dict = { chrom : [] for chrom in chromosomes }
-    elements_vals = list()
-    proportion_vals = list()
     records = 0
     kept = 0
 
@@ -204,15 +202,9 @@ def load_window_stats_file(win_f, chromosomes):
             window_stat = WindowStat(chrom, start, end, mid, n_elements, proportion)
             wins_dict[chrom].append(window_stat)
             kept += 1
-            # Append to the list of elements to get the max values
-            elements_vals.append(n_elements)
-            proportion_vals.append(proportion)
-    # Find the max values
-    max_elements = max(elements_vals)
-    max_proportion = max(proportion_vals)
     # Report to logs
     print(f'    Read {records:,} records from the input windows table.\n    Retained {kept:,} records.', flush=True)
-    return wins_dict, max_elements, max_proportion
+    return wins_dict
 
 #
 # Colors for the chromosome elements
@@ -509,6 +501,10 @@ def draw_scale(image, context, mean_val, max_val):
         if tick == 2.0:
             if max_val > 10:
                 continue
+        # Dont add the 5.0 if the max is > 50, for space purposes
+        if tick == 5.0:
+            if max_val > 50:
+                continue
         if max_val > tick:
             label_ticks.append(float(tick))
     # Add the max tick
@@ -535,46 +531,6 @@ def draw_scale(image, context, mean_val, max_val):
     # Reset font size
     context.set_font_size(image.font)
 
-    # # Top Label
-    # # lab1 = f'{float(round(max_val+s))}'
-    # lab1 = f'{round(max_val+s)}x'
-    # label_height = context.text_extents(lab1)[3]
-    # label_width  = context.text_extents(lab1)[2]
-    # # lab_x = x1-(label_width*1.25)
-    # lab_x = (x1*0.995)-label_width
-    # lab_y = y1+(label_height/2)
-    # txt_col = ChromColors('text')
-    # context.move_to(lab_x, lab_y)
-    # context.set_source_rgb(txt_col.r, txt_col.g, txt_col.b)
-    # context.show_text(lab1)
-    # # Bottom Label
-    # # lab2 = f'{0.0}x'
-    # lab2 = '0x'
-    # label_height = context.text_extents(lab2)[3]
-    # label_width  = context.text_extents(lab2)[2]
-    # # lab_x = x1-(label_width*1.25)
-    # lab_x = (x1*0.995)-label_width
-    # lab_y = y2+(label_height/2)
-    # txt_col = ChromColors('text')
-    # context.move_to(lab_x, lab_y)
-    # context.set_source_rgb(txt_col.r, txt_col.g, txt_col.b)
-    # context.show_text(lab2)
-    # # Middle label
-    # # labm = f'{1.0}x'
-    # labm = f'1x'
-    # label_height = context.text_extents(labm)[3]
-    # label_width  = context.text_extents(labm)[2]
-    # # TODO: 
-    # # lab_x = x1-(label_width*1.25)
-    # # lab_x = x1-(label_width)
-    # key_h = y2-y1
-    # lab_y = y2-(key_h*(mean_val/max_val))+(label_height/2)
-    # # lab_y = y1+(label_height/2)
-    # txt_col = ChromColors('text')
-    # context.move_to(lab_x, lab_y)
-    # context.set_source_rgb(txt_col.r, txt_col.g, txt_col.b)
-    # context.show_text(labm)
-
 # Add title to the figure
 def draw_title(image, context, title):
     assert isinstance(image, Image)
@@ -589,15 +545,36 @@ def draw_title(image, context, title):
     context.show_text(title)
 
 
+def get_value_distribution(win_val_dict, value_type='proportion'):
+    '''
+    Iterate over the windows dictionary and get the distribution of
+    genome-wide values.
+    '''
+    assert value_type in ['proportion', 'count']
+    values = list()
+    for chr in win_val_dict:
+        for window in win_val_dict[chr]:
+            assert isinstance(window, WindowStat)
+            if value_type == 'proportion':
+                values.append(window.proportion)
+            else:
+                values.append(window.n_elements)
+    mean_value = np.mean(values)
+    max_value = max(values)
+    return mean_value, max_value
+
+
 # Draw a figure
 def draw_genome_stats(outf, chromosomes, chrom_order, win_val_dict, 
-                      mean_val, max_val, name,
+                      name, plot_type = 'proportion',
                       height=IMG_HEIGHT, width=IMG_WIDTH, 
                       scale=SCALE, step=STEP, img_type='pdf'):
     print(f'\nMaking plot ({name}):\n    {outf}', flush=True)
     # Set an image object global variable
     image = Image(height=height, width=width, img_type=img_type)
     surface, context = image.cairo_context(outf)
+    # Get the distribution of values along the genome
+    mean_val, max_val = get_value_distribution(win_val_dict, plot_type)
     # Plot gridlines
     max_grd = plot_gridlines(chromosomes, image, context, scale, step)
     # Process the chromosomes
@@ -627,21 +604,17 @@ def main():
     # Load chromosome information
     chromosomes, chrom_order = process_chromosome_info(args.fai, args.chroms, args.min_len)
 
-    # Get Max Chr size
-    max_bp = max([ chromosomes[chrom].len for chrom in chromosomes ])
-
     # Load the target genetic elements
-    windows, max_elements, max_proportion = load_window_stats_file(args.in_table, chromosomes)
+    windows = load_window_stats_file(args.in_table, chromosomes)
 
     # Plot the genome stats
 
     # 1. For the number of elements
     outf = f'{args.out_dir}/{args.basename}.num_elements.{args.img_format}'
     name = f'{args.basename} : Number of elements per window'
-    draw_genome_stats(outf, chromosomes, chrom_order, 
-                      windows, 1.0, max_elements, name,
-                      height=args.img_height, width=args.img_width, scale=args.scale, step=args.step, 
-                      img_type=args.img_format)
+    draw_genome_stats(outf, chromosomes, chrom_order, windows, name, 
+                      plot_type='count', height=args.img_height, width=args.img_width,
+                      scale=args.scale, step=args.step, img_type=args.img_format)
 
 
     print(f'\n{PROG} finished on {date()} {time()}.')
