@@ -401,7 +401,6 @@ def process_chromosomes(chromosomes, chrom_order, wins_dict, image,
     y = image.min_tck
 
     ## Loop over the chromosomes
-    # for chromosome in sorted(chromosomes, key=lambda c: chromosomes[c].len, reverse=True):
     for chromosome in chrom_order:
         assert chromosome in chromosomes
         # Define the boundaries of the chromosome
@@ -416,10 +415,7 @@ def process_chromosomes(chromosomes, chrom_order, wins_dict, image,
             assert isinstance(window, WindowStat)
             if window.mid > bp:
                 continue
-            # Start x for the window
-            xs = image.scale_bp_to_pix(window.start, max_grd)
-            # End x for the window
-            xe = image.scale_bp_to_pix(window.end, max_grd)
+            x = image.scale_bp_to_pix(window.mid, max_grd)
             # Select the corresponding value type to plot
             value = window.proportion
             if plot_type == 'count':
@@ -427,15 +423,13 @@ def process_chromosomes(chromosomes, chrom_order, wins_dict, image,
             # Scale the colors based on the distribution of values
             (r, g, b) = three_color_gradient(colors[0], colors[1], colors[2],
                                              mean_val, value, max_val)
-            # Plot a polygon for the given window
+            # Plot a line for the midpoint of a given window.
+            # Not a polygon to prevent overlapping between windows.
             context.set_dash([])
-            context.move_to(xs, y1)
-            context.line_to(xe, y1)
-            context.line_to(xe, y2)
-            context.line_to(xs, y2)
-            context.close_path()
+            context.move_to(x, y1)
+            context.line_to(x, y2)
             context.set_source_rgb(r, g, b)
-            context.fill()
+            context.stroke()
 
         # Add the Chromosome len boxes
         context.set_dash([])
@@ -634,7 +628,7 @@ def main():
                       scale=args.scale, step=args.step, img_type=args.img_format)
 
     # 2. For the proportion of sites
-    outf = f'{args.out_dir}/{args.basename}.num_elements.{args.img_format}'
+    outf = f'{args.out_dir}/{args.basename}.site_proportions.{args.img_format}'
     name = f'{args.basename} : Proportion of sites per window'
     draw_genome_stats(outf, chromosomes, chrom_order, windows, name, 
                       plot_type='proportion', height=args.img_height, width=args.img_width,
