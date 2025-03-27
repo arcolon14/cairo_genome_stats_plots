@@ -279,7 +279,7 @@ def extract_elements_from_input_bed(in_bed_f, genomic_windows, min_span=MIN_SPAN
             # End column must be larger than start column
             # BED is 0-based, inclusive for start, exclusive for end, so
             # even 1-bp intervals should follow this convention.
-            if not end_bp > start_bp:
+            if not end_bp >= start_bp:
                 sys.exit(f'Error: Mis-formatted BED. End coordinate (column 3) must be larger than start coordinate (column 2) (line {i+1}).')
             seen_records += 1
             # Skip entries that are not in the window chromosomes
