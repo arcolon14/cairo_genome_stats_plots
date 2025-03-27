@@ -42,7 +42,7 @@ def parse_args():
                    help='(str) Image output format [default=pdf]')
     # Check inputs
     args = p.parse_args()
-    # assert args.scale >= args.min_len
+    assert args.scale <= args.min_len
     if args.chroms is not None:
         assert os.path.exists(args.chroms)
     assert os.path.exists(args.fai)
@@ -50,6 +50,9 @@ def parse_args():
     assert os.path.exists(args.out_dir)
     assert args.img_format in ['pdf', 'svg']
     args.out_dir = args.out_dir.rstrip('/')
+    # Adjust the basename if missing
+    if args.basename is None:
+        args.basename = args.in_table.split('/')[-1][:-len('.binned_genome_stats.tsv')]
     # Standarize the sizes to integers
     args.scale = int(args.scale)
     args.step = int(args.step)
@@ -386,10 +389,10 @@ def plot_gridlines(chromosomes, image, context, scale=SCALE, step=STEP):
 #
 # Process the chromosomes
 #
-def process_chromosomes(chromosomes, chrom_order, reps_dict, image, context, max_grd, mean_reps, max_reps, scale=SCALE, step=STEP):
+def process_chromosomes(chromosomes, chrom_order, wins_dict, image, context, max_grd, mean_reps, max_reps, scale=SCALE, step=STEP):
     assert type(chromosomes) is dict
     assert isinstance(list(chromosomes.values())[0], Chromosome)
-    assert type(reps_dict) is dict
+    assert type(wins_dict) is dict
     assert isinstance(image, Image)
     assert len(chromosomes) == len(chrom_order)
 
@@ -409,21 +412,21 @@ def process_chromosomes(chromosomes, chrom_order, reps_dict, image, context, max
         y1 = y+(1*min_step)
         y2 = y+(3*min_step)
 
-        # Extract the windows for the current chromosome
-        windows = reps_dict.get(chromosome, [])
-        if len(windows) > 0:
-            for window in windows:
-                assert isinstance(window, WindowStat)
-                if window.bp > bp:
-                    continue
-                x = image.scale_bp_to_pix(window.bp, max_grd)
-                (r, g, b) = three_color_gradient(colors[0], colors[1], colors[2], mean_reps,
-                                                 window.val, max_reps)
-                context.set_dash([])
-                context.move_to(x, y1)
-                context.line_to(x, y2)
-                context.set_source_rgb(r, g, b)
-                context.stroke()
+        # # Extract the windows for the current chromosome
+        # windows = wins_dict.get(chromosome, [])
+        # if len(windows) > 0:
+        #     for window in windows:
+        #         assert isinstance(window, WindowStat)
+        #         if window.bp > bp:
+        #             continue
+        #         x = image.scale_bp_to_pix(window.bp, max_grd)
+        #         (r, g, b) = three_color_gradient(colors[0], colors[1], colors[2], mean_reps,
+        #                                          window.val, max_reps)
+        #         context.set_dash([])
+        #         context.move_to(x, y1)
+        #         context.line_to(x, y2)
+        #         context.set_source_rgb(r, g, b)
+        #         context.stroke()
 
         # Add the Chromosome len boxes
         context.set_dash([])
@@ -494,7 +497,7 @@ def draw_scale(image, context, mean_reps, max_reps):
     # Add labels
     #
     # Top Label
-    lab1 = f'{float(round(max_reps+s))}'
+    # lab1 = f'{float(round(max_reps+s))}'
     lab1 = f'{round(max_reps+s)}x'
     label_height = context.text_extents(lab1)[3]
     label_width  = context.text_extents(lab1)[2]
@@ -505,7 +508,7 @@ def draw_scale(image, context, mean_reps, max_reps):
     context.set_source_rgb(txt_col.r, txt_col.g, txt_col.b)
     context.show_text(lab1)
     # Bottom Label
-    lab2 = f'{0.0}x'
+    # lab2 = f'{0.0}x'
     lab2 = '0x'
     label_height = context.text_extents(lab2)[3]
     label_width  = context.text_extents(lab2)[2]
@@ -516,11 +519,12 @@ def draw_scale(image, context, mean_reps, max_reps):
     context.set_source_rgb(txt_col.r, txt_col.g, txt_col.b)
     context.show_text(lab2)
     # Middle label
-    labm = f'{1.0}x'
+    # labm = f'{1.0}x'
     labm = f'1x'
     label_height = context.text_extents(labm)[3]
     label_width  = context.text_extents(labm)[2]
-    lab_x = x1-(label_width*1.25)
+    # TODO: 
+    # lab_x = x1-(label_width*1.25)
     key_h = y2-y1
     lab_y = y2-(key_h*(mean_reps/max_reps))+(label_height/2)
     # lab_y = y1+(label_height/2)
@@ -548,13 +552,16 @@ def draw_genome_stats(outf, chromosomes, chrom_order, win_val_dict,
                       mean_val, max_val, name,
                       height=IMG_HEIGHT, width=IMG_WIDTH, 
                       scale=SCALE, step=STEP, img_type='pdf'):
+    print(f'\nMaking plot ({name}):\n    {outf}', flush=True)
     # Set an image object global variable
     image = Image(height=height, width=width, img_type=img_type)
     surface, context = image.cairo_context(outf)
     # Plot gridlines
     max_grd = plot_gridlines(chromosomes, image, context, scale, step)
     # Process the chromosomes
-    process_chromosomes(chromosomes, chrom_order, win_val_dict, image, context, max_grd, mean_val, max_val, scale, step)
+    process_chromosomes(chromosomes, chrom_order, win_val_dict, 
+                        image, context, max_grd, mean_val, 
+                        max_val, scale, step)
     # Plot the scale
     draw_scale(image, context, mean_val, max_val)
     # Add title
@@ -584,35 +591,17 @@ def main():
     # Load the target genetic elements
     windows, max_elements, max_proportion = load_window_stats_file(args.in_table, chromosomes)
 
-    # # Load repeats
-    # reps_dict, mean_reps, max_reps = load_window_stats_file(args.reps_tsv, chromosomes)
-    # # Load genes
-    # gene_dict, mean_gene, max_gene = load_window_stats_file(args.prot_tsv, chromosomes)
+    # Plot the genome stats
 
-    # # ============
-    # # Draw Repeats
-    # # ============
+    # 1. For the number of elements
+    outf = f'{args.out_dir}/{args.basename}.num_elements.{args.img_format}'
+    name = f'{args.basename} : Number of elements per window'
+    draw_genome_stats(outf, chromosomes, chrom_order, 
+                      windows, 1.0, max_elements, name,
+                      height=args.img_height, width=args.img_width, scale=args.scale, step=args.step, 
+                      img_type=args.img_format)
 
-    # # Create an output file
-    # outf = f'{args.out_dir}/repeat_stats.{args.img_format}'
-    # name = f'{args.name} Repeats'
-    # # Draw
-    # draw_genome_stats(outf, chromosomes, chrom_order, reps_dict, mean_reps, max_reps, name,
-    #                   height=args.img_height, width=args.img_width, scale=args.scale, step=args.step, 
-    #                   img_type=args.img_format)
 
-    # # =============
-    # # Draw Proteins
-    # # =============
-
-    # # Create an output file
-    # outf = f'{args.out_dir}/genes_stats.{args.img_format}'
-    # name = f'{args.name} Genes'
-    # # Draw
-    # draw_genome_stats(outf, chromosomes, chrom_order, gene_dict, mean_gene, max_gene, name,
-    #                   height=args.img_height, width=args.img_width, scale=args.scale, step=args.step,
-    #                   img_type=args.img_format)
-    
     print(f'\n{PROG} finished on {date()} {time()}.')
 
 # Run Code
