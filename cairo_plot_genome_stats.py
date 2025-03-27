@@ -11,7 +11,7 @@ SCALE = 1_000_000
 STEP = 5_000_000
 IMG_WIDTH = 500
 IMG_HEIGHT = 500
-FONT_SIZE = 18
+FONT_SIZE = 10
 
 #
 # Command line options
@@ -350,6 +350,8 @@ def plot_gridlines(chromosomes, image, context, scale=SCALE, step=STEP):
     assert type(chromosomes) is dict
     assert isinstance(list(chromosomes.values())[0], Chromosome)
     assert isinstance(image, Image)
+    # Reset font size
+    context.set_font_size(image.font)
     # Plot the gridlines
     max_bp = max([ chromosomes[chrom].len for chrom in chromosomes ])
     assert max_bp > step
@@ -454,7 +456,7 @@ def process_chromosomes(chromosomes, chrom_order, wins_dict, image,
         # Add the labels
         label = str(chromosomes[chromosome].name)
         label_height = context.text_extents(label)[3]
-        label_width  = context.text_extents(label)[2]
+        label_width = context.text_extents(label)[2]
         lab_x = image.chr_lab-(label_width/2)
         lab_y = (y+(2*min_step))+(label_height/2)
         txt_col = ChromColors('text')
@@ -524,10 +526,10 @@ def draw_scale(image, context, mean_val, max_val):
     max_val = float(round(max_val+s))
     label_ticks.append(max_val)
     # Decrease the font size for the labels
-    context.set_font_size((image.font)*0.5) 
+    context.set_font_size((image.font)*0.8) 
     # Plot the axis ticks
     for tick in label_ticks:
-        lab = f'{tick} -'
+        lab = f'{tick}'
         label_height = context.text_extents(lab)[3]
         label_width = context.text_extents(lab)[2]
         lab_x = (x1*0.995)-label_width
@@ -549,6 +551,8 @@ def draw_title(image, context, title):
     assert isinstance(image, Image)
     x = image.min_chr
     y = image.max_y
+    # Reset font size
+    context.set_font_size(image.font*1.25)
     # Adjust height
     title_height = context.text_extents(title)[3]
     y = y-(title_height/2)
@@ -627,6 +631,13 @@ def main():
     name = f'{args.basename} : Number of elements per window'
     draw_genome_stats(outf, chromosomes, chrom_order, windows, name, 
                       plot_type='count', height=args.img_height, width=args.img_width,
+                      scale=args.scale, step=args.step, img_type=args.img_format)
+
+    # 2. For the proportion of sites
+    outf = f'{args.out_dir}/{args.basename}.num_elements.{args.img_format}'
+    name = f'{args.basename} : Proportion of sites per window'
+    draw_genome_stats(outf, chromosomes, chrom_order, windows, name, 
+                      plot_type='proportion', height=args.img_height, width=args.img_width,
                       scale=args.scale, step=args.step, img_type=args.img_format)
 
 
