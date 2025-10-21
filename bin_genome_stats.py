@@ -56,7 +56,6 @@ def parse_args(prog=PROG):
         sys.exit(f"Error: Min genomic window span ({args.min_span}) must be > 0.")
     return args
 
-
 class GenomicWindow():
     '''
     Store the coordinates and attributes of a target
@@ -93,7 +92,6 @@ class GenomicWindow():
         sites = set(range(int(self.sta), int(self.end)))
         overlap = sites.intersection(target)
         return overlap
-
 
 def date():
     '''Print the current date in YYYY-MM-DD format.'''
@@ -135,7 +133,7 @@ def set_windows_from_fai(fai, window_size=WIN_SIZE, window_step=WIN_STEP, min_ch
     # Report some stats on the windows
     print(f'\nRead {n_seqs:,} total records from the FAI file.\n\nGenerated window intervals for {len(genome_window_intervals):,} chromosomes/scaffolds:', flush=True)
     for chrom in genome_window_intervals:
-        print(f'    {chr}: {seq_lens[chrom]:,} bp; {len(genome_window_intervals[chrom]):,} windows', flush=True)
+        print(f'    {chrom}: {seq_lens[chrom]:,} bp; {len(genome_window_intervals[chrom]):,} windows', flush=True)
 
     return genome_window_intervals
 
@@ -157,7 +155,6 @@ def init_windows_dictionary(genome_window_intervals):
             windows_dict[chrom].setdefault(window_mid, deflt)
     return windows_dict
 
-
 def calculate_chr_window_intervals(chr_id, chr_len, window_size=WIN_SIZE, window_step=WIN_STEP):
     '''
     Calculate the window intervals for a given Chromosome length
@@ -175,7 +172,6 @@ def calculate_chr_window_intervals(chr_id, chr_len, window_size=WIN_SIZE, window
         window_start += window_step
         window_end += window_step
     return windows
-
 
 def binary_search_windows(chr_windows, target_bp):
     '''
@@ -258,7 +254,6 @@ def add_bed_record_to_windows(bed_chr, bed_start, bed_end, genomic_windows):
     # of the present record added.
     return genomic_windows
 
-
 def extract_elements_from_input_bed(in_bed_f, genomic_windows, min_span=MIN_SPAN):
     '''
     Parse the input bed file and tally elements in the windows.
@@ -308,7 +303,6 @@ def extract_elements_from_input_bed(in_bed_f, genomic_windows, min_span=MIN_SPAN
             kept_records += 1
     print(f'\n    Read {seen_records:,} records from input BED file.\n    Kept a total of {kept_records:,} records.', flush=True)
     return genomic_windows
-
 
 def generate_genome_wide_averages(genomic_windows)->dict:
     '''
@@ -363,7 +357,6 @@ def generate_genome_wide_averages(genomic_windows)->dict:
     flush=True)
     return genome_averages
 
-
 def process_windows_output(genomic_windows, output_dir, basename):
     '''
     Process the populated genomic windows, calculate averages, and
@@ -383,7 +376,7 @@ def process_windows_output(genomic_windows, output_dir, basename):
     # Generate the output file handle
     with open(outf, 'w', encoding='utf-8') as fh:
         header = ['#Chrom', 'StartBP', 'EndBP', 'MidBP',
-                  'ElementsN', 'ElementsAdj', 'ElementsZ'
+                  'ElementsN', 'ElementsAdj', 'ElementsZ',
                   'PropSites', 'PropSitesAdj', 'PropSitesZ']
         header = '\t'.join(header)
         fh.write(f'{header}\n')
@@ -407,9 +400,8 @@ def process_windows_output(genomic_windows, output_dir, basename):
                 prop_adj = prop_elements/prop_mean
                 # Calculate a Z-score
                 prop_z = (prop_elements-prop_mean)/prop_std
-                row += f'{prop_elements:0.8g}\t{prop_adj:0.8g}\t{prop_z:0.8g}'
+                row += f'\t{prop_elements:0.8g}\t{prop_adj:0.8g}\t{prop_z:0.8g}'
                 fh.write(f'{row}\n')
-
 
 def main():
     print(f'{PROG} started on {date()} {time()}.')
