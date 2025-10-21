@@ -143,10 +143,10 @@ def init_windows_dictionary(genome_window_intervals):
     '''
     Generate a dictionary of window values and initialize with zeroes.
     '''
-    windows_dict = dict()
+    windows_dict = {}
     for chrom in genome_window_intervals:
         chr_windows = genome_window_intervals[chrom]
-        windows_dict.setdefault(chrom, dict())
+        windows_dict.setdefault(chrom, {})
         for window in chr_windows:
             assert len(window) == 2
             window_sta = window[0]
@@ -292,7 +292,7 @@ def extract_elements_from_input_bed(in_bed_f, genomic_windows, min_span=MIN_SPAN
             # End column must be larger than start column
             # BED is 0-based, inclusive for start, exclusive for end, so
             # even 1-bp intervals should follow this convention.
-            if not end_bp >= start_bp:
+            if end_bp < start_bp:
                 sys.exit(f'Error: Mis-formatted BED. End coordinate (column 3) must be larger than start coordinate (column 2) (line {i+1}).')
             seen_records += 1
             # Skip entries that are not in the window chromosomes
@@ -310,20 +310,22 @@ def extract_elements_from_input_bed(in_bed_f, genomic_windows, min_span=MIN_SPAN
     return genomic_windows
 
 
-def generate_genome_wide_averages(genomic_windows):
+def generate_genome_wide_averages(genomic_windows)->dict:
     '''
     Iterate over all the populated windows and generate the
     genome-wide of the proportion of bases covered and number
     of elements per-window.
     '''
-    n_elements_mean = [] # Average number of elements per window
-    bp_prop_mean = []    # Average proportion of bases of the element per window
+    # Store all the averages for both number of elements and proportions
+    genome_averages = {}
+    n_elements = [] # Average number of elements per window
+    bp_prop = []    # Average proportion of bases of the element per window
     # Loop over all the windows...
     for chrom in genomic_windows:
         for window in genomic_windows[chrom]:
             assert isinstance(window, GenomicWindow)
             # The number of elements just gets appended as is. It is just a tally
-            n_elements_mean.append(window.n_elements)
+            n_elements.append(window.n_elements)
             # For the proportion, it has to be calculated based on the number of bases
             # covered and the length of the window.
             # TODO: mean of non-zero elements???
@@ -331,15 +333,35 @@ def generate_genome_wide_averages(genomic_windows):
             n_sites = len(window.sites)
             assert n_sites <= window_len, f'{window}'
             prop_mean = n_sites/window_len
-            bp_prop_mean.append(prop_mean)
-    # Now calculate the averages with the populated lists
-    n_elements_mean = np.mean(n_elements_mean)
-    bp_prop_mean = np.mean(bp_prop_mean)
+            bp_prop.append(prop_mean)
+    # Calculate the stats for the number of elements
+    genome_averages.setdefault('n_elements', {})
+    genome_averages['n_elements']['mean'] = np.mean(n_elements)
+    genome_averages['n_elements']['median'] = np.median(n_elements)
+    genome_averages['n_elements']['std'] = 0
+    if len(n_elements) > 0:
+        genome_averages['n_elements']['std'] = np.std(n_elements)
+
+    # Calculate the stats for the proportion of bases
+    genome_averages.setdefault('bp_prop', {})
+    genome_averages['bp_prop']['mean'] = np.mean(bp_prop)
+    genome_averages['bp_prop']['median'] = np.median(bp_prop)
+    genome_averages['bp_prop']['std'] = 0
+    if len(n_elements) > 0:
+        genome_averages['bp_prop']['std'] = np.std(bp_prop)
+
     # Report to log.
-    print(f'\n    Genome-wide mean number of elements in a window: {n_elements_mean:,.6g}')
-    print(f'    Genome-wide mean proportion of target bases in a window: {bp_prop_mean:,.6g}',
-          flush=True)
-    return n_elements_mean, bp_prop_mean
+    print(f'''
+    Genome-wide average number of elements in a window:
+        Mean:   {genome_averages['n_elements']['mean']:,.6g}
+        Median: {genome_averages['n_elements']['median']:,.6g}
+        StDev:  {genome_averages['n_elements']['std']:,.6g}
+    Genome-wide average proportion of bases in a window:
+        Mean:   {genome_averages['bp_prop']['mean']:,.6g}
+        Median: {genome_averages['bp_prop']['median']:,.6g}
+        StDev:  {genome_averages['bp_prop']['std']:,.6g}''',
+    flush=True)
+    return genome_averages
 
 
 def process_windows_output(genomic_windows, output_dir, basename):
@@ -350,13 +372,19 @@ def process_windows_output(genomic_windows, output_dir, basename):
     # Generate the output file
     outf = f'{output_dir}/{basename}.binned_genome_stats.tsv'
     print(f'\nGenerating output to:\n    {outf}', flush=True)
-    # Get the genome-wide mean of the proportion and number of 
+    # Get the genome-wide averages of the proportion and number of
     # elements per window.
-    n_elements_mean, bp_prop_mean = generate_genome_wide_averages(genomic_windows)
+    genome_averages = generate_genome_wide_averages(genomic_windows)
+    element_mean = genome_averages['n_elements']['mean']
+    element_std = genome_averages['n_elements']['std']
+    prop_mean = genome_averages['bp_prop']['mean']
+    prop_std = genome_averages['bp_prop']['std']
+
     # Generate the output file handle
     with open(outf, 'w', encoding='utf-8') as fh:
         header = ['#Chrom', 'StartBP', 'EndBP', 'MidBP',
-                  'ElementsN', 'ElementsAdj', 'PropSites', 'PropSitesAdj']
+                  'ElementsN', 'ElementsAdj', 'ElementsZ'
+                  'PropSites', 'PropSitesAdj', 'PropSitesZ']
         header = '\t'.join(header)
         fh.write(f'{header}\n')
         # Loop over the windows and write to file
@@ -367,12 +395,19 @@ def process_windows_output(genomic_windows, output_dir, basename):
                 row = f'{window.chr}\t{window.sta}\t{window.end}\t{window.mid}'
                 # Then process the rest and add to the list
                 # Number of elements per window
-                elements_adj = window.n_elements/n_elements_mean
-                row += f'\t{window.n_elements}\t{elements_adj:0.8g}\t'
+                # Adjust based on the mean
+                elements_adj = window.n_elements/element_mean
+                # Calculate a Z-score
+                elements_z = (window.n_elements-element_mean)/element_std
+                row += f'\t{window.n_elements}\t{elements_adj:0.8g}\t{elements_z:0.8g}'
+
                 # Proportion of elements in window
                 prop_elements = len(window.sites)/(window.end-window.sta)
-                prop_elements_adj = prop_elements/bp_prop_mean
-                row += f'{prop_elements:0.8g}\t{prop_elements_adj:0.8g}'
+                # Adjust based on the mean
+                prop_adj = prop_elements/prop_mean
+                # Calculate a Z-score
+                prop_z = (prop_elements-prop_mean)/prop_std
+                row += f'{prop_elements:0.8g}\t{prop_adj:0.8g}\t{prop_z:0.8g}'
                 fh.write(f'{row}\n')
 
 
