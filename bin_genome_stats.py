@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-import sys, os, argparse, datetime, gzip
+import sys
+import os
+import argparse
+import datetime
+import gzip
 import numpy as np
 
 # Some constants
@@ -54,7 +58,11 @@ def parse_args(prog=PROG):
 
 
 class GenomicWindow():
-    def __init__(self, chromosome, start_bp, end_bp):
+    '''
+    Store the coordinates and attributes of a target
+    genomic window.
+    '''
+    def __init__(self, chromosome:str, start_bp:int|float, end_bp:int|float):
         # Check the input coordinates
         assert type(start_bp) in {int, float}
         assert type(end_bp) in {int, float}
@@ -74,6 +82,10 @@ class GenomicWindow():
         row = f'{self.wid} {self.chr} {self.sta} {self.end} {self.n_bases} {self.n_elements} {len(self.sites)}'
         return row
     def find_overlapping_bps(self, target_start, target_end):
+        '''
+        Determine if a set of given coordinates overlap with the 
+        current window.
+        '''
         assert type(target_start) in {int, float}
         assert type(target_end) in {int, float}
         assert target_end > target_start
@@ -94,13 +106,14 @@ def time():
 def set_windows_from_fai(fai, window_size=WIN_SIZE, window_step=WIN_STEP, min_chr_size=MIN_CHR_LEN):
     '''
     Use the genome fasta index to pre-calculate the genomic windows.
-    Based on the script: https://github.com/adeflamingh/de_Flamingh_etal_2023_Cape_lion/blob/main/average_genomic_windows.py
+    Based on the script:
+    https://github.com/adeflamingh/de_Flamingh_etal_2023_Cape_lion/blob/main/average_genomic_windows.py
     '''
     assert window_step > 0
     genome_window_intervals = dict()
     seq_lens = dict()
     n_seqs = 0
-    with open(fai) as fh:
+    with open(fai, encoding='utf-') as fh:
         for line in fh:
             if line.startswith('#'):
                 continue
@@ -121,8 +134,8 @@ def set_windows_from_fai(fai, window_size=WIN_SIZE, window_step=WIN_STEP, min_ch
             seq_lens[seq_id] = seq_len
     # Report some stats on the windows
     print(f'\nRead {n_seqs:,} total records from the FAI file.\n\nGenerated window intervals for {len(genome_window_intervals):,} chromosomes/scaffolds:', flush=True)
-    for chr in genome_window_intervals:
-        print(f'    {chr}: {seq_lens[chr]:,} bp; {len(genome_window_intervals[chr]):,} windows', flush=True)
+    for chrom in genome_window_intervals:
+        print(f'    {chr}: {seq_lens[chrom]:,} bp; {len(genome_window_intervals[chrom]):,} windows', flush=True)
 
     return genome_window_intervals
 
@@ -172,14 +185,14 @@ def binary_search_windows(chr_windows, target_bp):
     low = 0
     high = len(chr_windows) - 1
     mid = 0
-    # First, confirm that the target element is within the desired 
+    # First, confirm that the target element is within the desired
     # range. If not, return None and raise error in next step.
     if target_bp > chr_windows[-1].end:
         return None
     while low <= high:
         # This divides the chromosome windows into two halves
-        # based on the midpoint of the number of windows. These 
-        # "halves" become smaller as we proportionally slice 
+        # based on the midpoint of the number of windows. These
+        # "halves" become smaller as we proportionally slice
         # down the chromosome into smaller and smaller chunks.
         mid = (high + low) // 2
         # Find the window at the midpoint, this will allow us
@@ -197,7 +210,7 @@ def binary_search_windows(chr_windows, target_bp):
             high = mid - 1
         else:
             return mid
-    # The previous loop ends one window past the target, so 
+    # The previous loop ends one window past the target, so
     # return back one and return.
     mid -= 1
     return mid
@@ -206,12 +219,12 @@ def add_bed_record_to_windows(bed_chr, bed_start, bed_end, genomic_windows):
     '''
     Add a given BED record to the genomic windows dictionary.
     '''
-    assert type(genomic_windows) is dict
+    assert isinstance(genomic_windows, dict)
     # First, work only on the windows of the target chromosome
     chr_windows = genomic_windows[bed_chr]
     # We will traverse the chromosome windows using a binary search
     # operation (or at least, binary search-like).
-    # These will provide the start index we are going to use to 
+    # These will provide the start index we are going to use to
     # iterate over the windows.
     start_idx = binary_search_windows(chr_windows, bed_start)
     # print(start_idx, chr_windows[start_idx])
@@ -219,13 +232,13 @@ def add_bed_record_to_windows(bed_chr, bed_start, bed_end, genomic_windows):
         # Error if the range is not within the chromosome
         sys.exit(f'Error: Range {bed_start} to {bed_end} not within the range of sequence {bed_chr}.')
     # start_idx = 0
-    # Iterate over the chromosome windows starting from the selected 
+    # Iterate over the chromosome windows starting from the selected
     # point. End once the windows move past the range of the record.
     for win_i in range(start_idx, len(chr_windows)-1):
         curr_window = chr_windows[win_i]
         assert isinstance(curr_window, GenomicWindow)
-        # If the current window is before the target record, keep moving 
-        # up the windows. This shouldn't happen, since we did the binary 
+        # If the current window is before the target record, keep moving
+        # up the windows. This shouldn't happen, since we did the binary
         # search above, but good as a safety net.
         if curr_window.end < bed_start:
             continue
@@ -251,13 +264,13 @@ def extract_elements_from_input_bed(in_bed_f, genomic_windows, min_span=MIN_SPAN
     Parse the input bed file and tally elements in the windows.
     '''
     assert os.path.exists(in_bed_f)
-    assert type(genomic_windows) is dict
+    assert isinstance(genomic_windows, dict)
     print(f'\nParsing input BED file:\n    {in_bed_f}', flush=True)
 
     # Prepare outputs
     seen_records = 0
     kept_records = 0
-    with open(in_bed_f) as fh:
+    with open(in_bed_f, encoding='utf-8') as fh:
         for i, line in enumerate(fh):
             line = line.strip('\n')
             # Skip comments and empty lines
@@ -289,7 +302,8 @@ def extract_elements_from_input_bed(in_bed_f, genomic_windows, min_span=MIN_SPAN
             if (end_bp-start_bp) < min_span:
                 continue
             # Add the present record to the windows dictionary
-            genomic_windows = add_bed_record_to_windows(chromosome, start_bp, end_bp, genomic_windows)
+            genomic_windows = add_bed_record_to_windows(chromosome, start_bp,
+                                                        end_bp, genomic_windows)
             # Add this entry to the window dictionary
             kept_records += 1
     print(f'\n    Read {seen_records:,} records from input BED file.\n    Kept a total of {kept_records:,} records.', flush=True)
@@ -302,15 +316,16 @@ def generate_genome_wide_averages(genomic_windows):
     genome-wide of the proportion of bases covered and number
     of elements per-window.
     '''
-    n_elements_mean = list() # Average number of elements per window
-    bp_prop_mean = list()    # Average proportion of bases of the element per window
+    n_elements_mean = [] # Average number of elements per window
+    bp_prop_mean = []    # Average proportion of bases of the element per window
     # Loop over all the windows...
-    for chr in genomic_windows:
-        for window in genomic_windows[chr]:
+    for chrom in genomic_windows:
+        for window in genomic_windows[chrom]:
             assert isinstance(window, GenomicWindow)
             # The number of elements just gets appended as is. It is just a tally
             n_elements_mean.append(window.n_elements)
-            # For the proportion, it has to be calculated based on the number of bases covered and the length ofg the window.
+            # For the proportion, it has to be calculated based on the number of bases
+            # covered and the length of the window.
             # TODO: mean of non-zero elements???
             window_len = window.end - window.sta
             n_sites = len(window.sites)
@@ -322,7 +337,8 @@ def generate_genome_wide_averages(genomic_windows):
     bp_prop_mean = np.mean(bp_prop_mean)
     # Report to log.
     print(f'\n    Genome-wide mean number of elements in a window: {n_elements_mean:,.6g}')
-    print(f'    Genome-wide mean proportion of target bases in a window: {bp_prop_mean:,.6g}', flush=True)
+    print(f'    Genome-wide mean proportion of target bases in a window: {bp_prop_mean:,.6g}',
+          flush=True)
     return n_elements_mean, bp_prop_mean
 
 
@@ -338,14 +354,14 @@ def process_windows_output(genomic_windows, output_dir, basename):
     # elements per window.
     n_elements_mean, bp_prop_mean = generate_genome_wide_averages(genomic_windows)
     # Generate the output file handle
-    with open(outf, 'w') as fh:
+    with open(outf, 'w', encoding='utf-8') as fh:
         header = ['#Chrom', 'StartBP', 'EndBP', 'MidBP',
                   'ElementsN', 'ElementsAdj', 'PropSites', 'PropSitesAdj']
         header = '\t'.join(header)
         fh.write(f'{header}\n')
         # Loop over the windows and write to file
-        for chr in genomic_windows:
-            for window in genomic_windows[chr]:
+        for chrom in genomic_windows:
+            for window in genomic_windows[chrom]:
                 assert isinstance(window, GenomicWindow)
                 # Start with the four standard positional entries
                 row = f'{window.chr}\t{window.sta}\t{window.end}\t{window.mid}'
@@ -367,14 +383,20 @@ def main():
     print(f'    Min Chrom Length: {int(args.min_len):,} bp')
     print(f'    Window Size: {int(args.win_size):,} bp')
     print(f'    Window Step: {int(args.win_step):,} bp', flush=True)
-    if args.min_span > 1: 
-        print(f'    Min Size of Input Element in BED: {int(args.min_span):,} bp', flush=True)
+    if args.min_span > 1:
+        print(f'    Min Size of Input Element in BED: {int(args.min_span):,} bp',
+              flush=True)
 
     # Get windows from the fai
-    genome_window_intervals = set_windows_from_fai(args.fai, args.win_size, args.win_step, args.min_len)
+    genome_window_intervals = set_windows_from_fai(args.fai,
+                                                   args.win_size,
+                                                   args.win_step,
+                                                   args.min_len)
 
     # Process the input bed
-    genome_window_intervals = extract_elements_from_input_bed(args.in_bed, genome_window_intervals, args.min_span)
+    genome_window_intervals = extract_elements_from_input_bed(args.in_bed,
+                                                              genome_window_intervals,
+                                                              args.min_span)
 
     # Generate a new output file
     process_windows_output(genome_window_intervals, args.out_dir, args.basename)
