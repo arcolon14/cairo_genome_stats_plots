@@ -53,7 +53,7 @@ def parse_args():
     args.out_dir = args.out_dir.rstrip('/')
     # Adjust the basename if missing
     if args.basename is None:
-        args.basename = args.in_table.split('/')[-1][:-len('.binned_genome_stats.tsv')]
+        args.basename = os.path.basename(args.in_table).removesuffix('.binned_genome_stats.tsv')
     # Standarize the sizes to integers
     args.scale = int(args.scale)
     args.step = int(args.step)
