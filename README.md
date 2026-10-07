@@ -194,7 +194,8 @@ $ python3 cairo_plot_genome_stats.py -h
 
   cairo_plot_genome_stats.py started on 2025-03-27 14:53:21.
   usage: cairo_plot_genome_stats.py [-h] -f FAI -t IN_TABLE [-c CHROMS]
-                                    [-o OUT_DIR] [-n BASENAME] [-m MIN_LEN]
+                                    [-o OUT_DIR] [-n BASENAME] [--title TITLE]
+                                    [-m MIN_LEN]
                                     [-s SCALE] [-p STEP]
                                     [--img-height IMG_HEIGHT]
                                     [--img-width IMG_WIDTH]
@@ -215,6 +216,8 @@ $ python3 cairo_plot_genome_stats.py -h
     -n, --basename BASENAME
                           (str) Basename of output files [default=In table
                           basename].
+    --title TITLE         (str) Title of the plots, followed by the type of
+                          plot [default=Basename].
     -m, --min-len MIN_LEN
                           (int/float) Minimum chromosome size in bp [default
                           1,000,000]

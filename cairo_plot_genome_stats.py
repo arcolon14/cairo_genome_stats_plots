@@ -50,6 +50,8 @@ def parse_args():
                    help='(str) Path to output directory [default=.].')
     p.add_argument('-n', '--basename', required=False, default=None,
                    help='(str) Basename of output files [default=In table basename].')
+    p.add_argument('--title', required=False, default=None,
+                   help='(str) Title of the plots, followed by the type of plot [default=Basename].')
     p.add_argument('-m', '--min-len', required=False, default=MIN_CHR_LEN,
                    type=float, help=f'(int/float) Minimum chromosome size in bp [default {MIN_CHR_LEN:,}]')
     p.add_argument('-s', '--scale', required=False, default=SCALE, type=float,
@@ -868,10 +870,11 @@ def main():
     print(f'\nUsing color palette: {args.palette}{" (reversed)" if args.reverse_palette else ""}', flush=True)
 
     # Plot the genome stats
+    title = args.basename if args.title is None else args.title
 
     # 1. For the number of elements
     outf = f'{args.out_dir}/{args.basename}.num_elements.{args.img_format}'
-    name = f'{args.basename} : Number of elements per window (log2 enrichment)'
+    name = f'{title} : Number of elements per window (log2 enrichment)'
     draw_genome_stats(outf, chromosomes, chrom_order, windows, name, 
                       plot_type='count', height=args.img_height, width=args.img_width,
                       scale=args.scale, step=args.step, img_type=args.img_format,
@@ -881,7 +884,7 @@ def main():
 
     # 2. For the proportion of sites
     outf = f'{args.out_dir}/{args.basename}.site_proportions.{args.img_format}'
-    name = f'{args.basename} : Proportion of sites per window (log2 enrichment)'
+    name = f'{title} : Proportion of sites per window (log2 enrichment)'
     draw_genome_stats(outf, chromosomes, chrom_order, windows, name, 
                       plot_type='proportion', height=args.img_height, width=args.img_width,
                       scale=args.scale, step=args.step, img_type=args.img_format,
