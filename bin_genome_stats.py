@@ -75,23 +75,11 @@ class GenomicWindow():
         self.wid = f'{chromosome}:{self.mid}'
         # Initialize the tallies
         self.n_elements = 0  # Number of elements in the window
-        self.n_bases = 0     # Number of bases covered by elements
-        self.sites = set()   # Set of the sites coveraged by the elements (to handle overlaps)
+        self.n_bases = 0     # Number of bases covered by elements (overlapping bases counted multiple times)
+        self.n_sites = 0     # Number of sites covered by the elements (overlapping bases counted once)
     def __str__(self):
-        row = f'{self.wid} {self.chr} {self.sta} {self.end} {self.n_bases} {self.n_elements} {len(self.sites)}'
+        row = f'{self.wid} {self.chr} {self.sta} {self.end} {self.n_bases} {self.n_elements} {self.n_sites}'
         return row
-    def find_overlapping_bps(self, target_start, target_end):
-        '''
-        Determine if a set of given coordinates overlap with the 
-        current window.
-        '''
-        assert type(target_start) in {int, float}
-        assert type(target_end) in {int, float}
-        assert target_end > target_start
-        target = set(range(int(target_start), int(target_end)))
-        sites = set(range(int(self.sta), int(self.end)))
-        overlap = sites.intersection(target)
-        return overlap
 
 def date():
     '''Print the current date in YYYY-MM-DD format.'''
@@ -173,86 +161,88 @@ def calculate_chr_window_intervals(chr_id, chr_len, window_size=WIN_SIZE, window
         window_end += window_step
     return windows
 
-def binary_search_windows(chr_windows, target_bp):
+def merge_intervals(starts, ends):
     '''
-    Use a binary search to find the interval where to iterate over
-    the desired chromosome windows.
+    Merge a set of intervals into disjoint, sorted blocks. Overlapping
+    and adjacent intervals are combined into a single block.
     '''
-    low = 0
-    high = len(chr_windows) - 1
-    mid = 0
-    # First, confirm that the target element is within the desired
-    # range. If not, return None and raise error in next step.
-    if target_bp > chr_windows[-1].end:
-        return None
-    while low <= high:
-        # This divides the chromosome windows into two halves
-        # based on the midpoint of the number of windows. These
-        # "halves" become smaller as we proportionally slice
-        # down the chromosome into smaller and smaller chunks.
-        mid = (high + low) // 2
-        # Find the window at the midpoint, this will allow us
-        # to compare our target BP position.
-        curr_window = chr_windows[mid]
-        assert isinstance(curr_window, GenomicWindow)
-        # print(low, mid, high, curr_window)
-        # If the target BP is larger than the midpoint,
-        # ignore the first half of the interval.
-        if curr_window.sta <= target_bp:
-            low = mid + 1
-        # Instead, if the target is smaller than the midpoint
-        # position, ignore the second half of the interval
-        elif curr_window.sta > target_bp:
-            high = mid - 1
-        else:
-            return mid
-    # The previous loop ends one window past the target, so
-    # return back one and return.
-    mid -= 1
-    return mid
+    assert len(starts) == len(ends)
+    if len(starts) == 0:
+        return starts, ends
+    order = np.argsort(starts, kind='stable')
+    starts = starts[order]
+    ends = ends[order]
+    # A new block begins when an interval starts past the furthest end seen so far
+    running_end = np.maximum.accumulate(ends)
+    new_block = np.ones(len(starts), dtype=bool)
+    new_block[1:] = starts[1:] > running_end[:-1]
+    block_idx = np.flatnonzero(new_block)
+    block_starts = starts[block_idx]
+    block_ends = np.maximum.reduceat(ends, block_idx)
+    return block_starts, block_ends
 
-def add_bed_record_to_windows(bed_chr, bed_start, bed_end, genomic_windows):
+def covered_sites_before(positions, block_starts, block_ends):
     '''
-    Add a given BED record to the genomic windows dictionary.
+    For each position, count the number of sites covered by the
+    (disjoint, sorted) blocks to the left of that position.
     '''
-    assert isinstance(genomic_windows, dict)
-    # First, work only on the windows of the target chromosome
-    chr_windows = genomic_windows[bed_chr]
-    # We will traverse the chromosome windows using a binary search
-    # operation (or at least, binary search-like).
-    # These will provide the start index we are going to use to
-    # iterate over the windows.
-    start_idx = binary_search_windows(chr_windows, bed_start)
-    # print(start_idx, chr_windows[start_idx])
-    if start_idx is None:
-        # Error if the range is not within the chromosome
-        sys.exit(f'Error: Range {bed_start} to {bed_end} not within the range of sequence {bed_chr}.')
-    # start_idx = 0
-    # Iterate over the chromosome windows starting from the selected
-    # point. End once the windows move past the range of the record.
-    for win_i in range(start_idx, len(chr_windows)-1):
-        curr_window = chr_windows[win_i]
-        assert isinstance(curr_window, GenomicWindow)
-        # If the current window is before the target record, keep moving
-        # up the windows. This shouldn't happen, since we did the binary
-        # search above, but good as a safety net.
-        if curr_window.end < bed_start:
-            continue
-        # If the current window is after the target record, stop.
-        if curr_window.sta > bed_end:
-            break
-        # Determine the range of the overlap.
-        overlap = curr_window.find_overlapping_bps(bed_start, bed_end)
-        # Add this to the tally
-        if len(overlap) > 0:
-            curr_window.n_bases += len(overlap)
-            curr_window.n_elements += 1
-            curr_window.sites.update(list(overlap))
-        # Add it back to the original, genome-wide object
-        genomic_windows[bed_chr][win_i] = curr_window
-    # Return the original, genome-wide windows object with the values
-    # of the present record added.
-    return genomic_windows
+    # Total length of all the blocks before each block
+    cumul_len = np.concatenate([[0], np.cumsum(block_ends-block_starts)])
+    # Index of the last block starting at or before each position
+    k = np.searchsorted(block_starts, positions, side='right') - 1
+    kk = np.clip(k, 0, None)
+    covered = cumul_len[kk] + np.minimum(positions, block_ends[kk]) - block_starts[kk]
+    return np.where(k >= 0, covered, 0)
+
+def element_bases_before(positions, starts, ends):
+    '''
+    For each position, sum the number of bases of all elements to the left
+    of that position. Bases of overlapping elements are counted multiple times.
+    '''
+    starts = np.sort(starts)
+    ends = np.sort(ends)
+    cumul_starts = np.concatenate([[0], np.cumsum(starts)])
+    cumul_ends = np.concatenate([[0], np.cumsum(ends)])
+    # Elements starting before the position contribute (position - start) bases,
+    # minus (position - end) bases for those that also end before the position.
+    n_sta = np.searchsorted(starts, positions, side='left')
+    n_end = np.searchsorted(ends, positions, side='left')
+    bases = (n_sta*positions - cumul_starts[n_sta]) - (n_end*positions - cumul_ends[n_end])
+    return bases
+
+def tally_chromosome_windows(chr_windows, starts, ends):
+    '''
+    Tally the number of elements, and the number of sites covered by
+    them, in all the windows of a given chromosome.
+    '''
+    assert len(starts) == len(ends)
+    if len(starts) == 0:
+        return chr_windows
+    win_sta = np.array([ window.sta for window in chr_windows ], dtype=np.int64)
+    win_end = np.array([ window.end for window in chr_windows ], dtype=np.int64)
+    # Number of elements overlapping each window. An element overlaps the
+    # window [win_sta, win_end) if it starts before win_end and ends after
+    # win_sta. Since start < end for all elements, this equals the number of
+    # elements starting before win_end minus those ending at or before win_sta.
+    n_elements = (np.searchsorted(np.sort(starts), win_end, side='left') -
+                  np.searchsorted(np.sort(ends), win_sta, side='right'))
+    # Number of bases of each window covered by the elements
+    n_bases = (element_bases_before(win_end, starts, ends) -
+               element_bases_before(win_sta, starts, ends))
+    # Number of sites in each window covered by the elements. Merge the elements
+    # first so that sites belonging to overlapping elements are counted once.
+    block_starts, block_ends = merge_intervals(starts, ends)
+    n_sites = (covered_sites_before(win_end, block_starts, block_ends) -
+               covered_sites_before(win_sta, block_starts, block_ends))
+    # Add the tallies to the windows
+    for i, window in enumerate(chr_windows):
+        assert isinstance(window, GenomicWindow)
+        window.n_elements = int(n_elements[i])
+        window.n_bases = int(n_bases[i])
+        window.n_sites = int(n_sites[i])
+        assert window.n_sites <= window.n_bases
+        assert window.n_sites <= (window.end - window.sta)
+    return chr_windows
 
 def extract_elements_from_input_bed(in_bed_f, genomic_windows, min_span=MIN_SPAN):
     '''
@@ -265,6 +255,8 @@ def extract_elements_from_input_bed(in_bed_f, genomic_windows, min_span=MIN_SPAN
     # Prepare outputs
     seen_records = 0
     kept_records = 0
+    # Coordinates of the kept elements, per chromosome
+    chr_elements = { chrom : ([], []) for chrom in genomic_windows }
     with open(in_bed_f, encoding='utf-8') as fh:
         for i, line in enumerate(fh):
             line = line.strip('\n')
@@ -296,12 +288,20 @@ def extract_elements_from_input_bed(in_bed_f, genomic_windows, min_span=MIN_SPAN
             # Skip entries that are under the desired length (span)
             if (end_bp-start_bp) < min_span:
                 continue
-            # Add the present record to the windows dictionary
-            genomic_windows = add_bed_record_to_windows(chromosome, start_bp,
-                                                        end_bp, genomic_windows)
-            # Add this entry to the window dictionary
+            # Error if the range is not within the chromosome
+            if end_bp > genomic_windows[chromosome][-1].end:
+                sys.exit(f'Error: Range {start_bp} to {end_bp} not within the range of sequence {chromosome} (line {i+1}).')
+            # Add this entry to the elements of the chromosome
+            chr_elements[chromosome][0].append(start_bp)
+            chr_elements[chromosome][1].append(end_bp)
             kept_records += 1
     print(f'\n    Read {seen_records:,} records from input BED file.\n    Kept a total of {kept_records:,} records.', flush=True)
+
+    # Tally the elements in the windows of each chromosome
+    for chrom in genomic_windows:
+        starts = np.array(chr_elements[chrom][0], dtype=np.int64)
+        ends = np.array(chr_elements[chrom][1], dtype=np.int64)
+        genomic_windows[chrom] = tally_chromosome_windows(genomic_windows[chrom], starts, ends)
     return genomic_windows
 
 def generate_genome_wide_averages(genomic_windows)->dict:
@@ -324,7 +324,7 @@ def generate_genome_wide_averages(genomic_windows)->dict:
             # covered and the length of the window.
             # TODO: mean of non-zero elements???
             window_len = window.end - window.sta
-            n_sites = len(window.sites)
+            n_sites = window.n_sites
             assert n_sites <= window_len, f'{window}'
             prop_mean = n_sites/window_len
             bp_prop.append(prop_mean)
@@ -397,7 +397,7 @@ def process_windows_output(genomic_windows, output_dir, basename):
 
                 # Proportion of elements in window
                 window_len = window.end-window.sta
-                prop_elements = len(window.sites)/window_len
+                prop_elements = window.n_sites/window_len
                 # Adjust based on the mean as a log2 enrichment, with a
                 # pseudocount of one site (1/window length) to handle empty windows
                 prop_pseudo = 1/window_len
