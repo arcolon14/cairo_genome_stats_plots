@@ -46,6 +46,10 @@ def parse_args():
                    help='(str) Image output format [default=pdf]')
     p.add_argument('--max-log2', required=False, default=str(MAX_LOG2),
                    help=f'(int/float/\'auto\') Limit of the symmetric log2 enrichment color scale; values beyond +/- this are clamped. If \'auto\', set the limit for each plot from the data (see --scale-quantile) [default={MAX_LOG2}].')
+    p.add_argument('--palette', required=False, default=PALETTE, choices=list(PALETTES),
+                   help=f'(str) Diverging color palette for the heatmaps, from depleted to enriched values. ColorBrewer palettes are oriented so that the first color in the name marks enriched values (e.g., red in RdYlGn) [default={PALETTE}].')
+    p.add_argument('--reverse-palette', required=False, action='store_true',
+                   help='(flag) Reverse the order of the color palette.')
     p.add_argument('--scale-quantile', required=False, default=SCALE_QUANTILE, type=float,
                    help=f'(int/float) When --max-log2 is \'auto\', percentile of the absolute log2 values used as the limit of the color scale, rounded up to the nearest {SCALE_ROUND} [default={SCALE_QUANTILE}].')
     # Check inputs
@@ -256,39 +260,62 @@ class ChromColors:
         return f'R: {self.r:.2f}, G: {self.g:.2f}, B: {self.b:.2f}, A: {self.a:.2f}'
 
 
-# Other colors
+# Color palettes for the heatmaps
 # check https://www.colorhexa.com/
+#
+# Each palette is a list of hex colors, ordered from the lowest (depleted)
+# to the highest (enriched) values. The middle color corresponds to a log2
+# enrichment of 0 (the genome-wide average), so palettes have an odd number
+# of colors. Colors are linearly interpolated between consecutive stops.
+PALETTES = {
+    # Original palettes
+    'RedYellowBlue' : ['#0050f2', '#fcf75e', '#ff0000'], # Blue, Yellow, Red
+    'BlueWhiteRed'  : ['#0050f2', '#ffffff', '#ff0000'], # Blue, White, Red
+    'Viridis'       : ['#191970', '#00693e', '#ffa812'], # Indigo, Green, Yellow
+    'Mango'         : ['#00693e', '#ffa812', '#b22222'], # Green, Yellow, Red
+    'MangoLight'    : ['#449d48', '#f6db6a', '#e54449'], # Green, Yellow, Red
+    'Magma'         : ['#00008b', '#ff2800', '#fcf75e'], # Indigo, Red, Yellow
+    # ColorBrewer diverging palettes (11 classes; https://colorbrewer2.org).
+    # Reversed from the ColorBrewer order, so that the first color in the name
+    # (e.g., Red in RdYlGn) corresponds to the enriched values.
+    'RdYlGn'   : ['#006837', '#1a9850', '#66bd63', '#a6d96a', '#d9ef8b', '#ffffbf',
+                  '#fee08b', '#fdae61', '#f46d43', '#d73027', '#a50026'],
+    'RdYlBu'   : ['#313695', '#4575b4', '#74add1', '#abd9e9', '#e0f3f8', '#ffffbf',
+                  '#fee090', '#fdae61', '#f46d43', '#d73027', '#a50026'],
+    'RdBu'     : ['#053061', '#2166ac', '#4393c3', '#92c5de', '#d1e5f0', '#f7f7f7',
+                  '#fddbc7', '#f4a582', '#d6604d', '#b2182b', '#67001f'],
+    'RdGy'     : ['#1a1a1a', '#4d4d4d', '#878787', '#bababa', '#e0e0e0', '#ffffff',
+                  '#fddbc7', '#f4a582', '#d6604d', '#b2182b', '#67001f'],
+    'PuOr'     : ['#2d004b', '#542788', '#8073ac', '#b2abd2', '#d8daeb', '#f7f7f7',
+                  '#fee0b6', '#fdb863', '#e08214', '#b35806', '#7f3b08'],
+    'BrBG'     : ['#003c30', '#01665e', '#35978f', '#80cdc1', '#c7eae5', '#f5f5f5',
+                  '#f6e8c3', '#dfc27d', '#bf812d', '#8c510a', '#543005'],
+    'PiYG'     : ['#276419', '#4d9221', '#7fbc41', '#b8e186', '#e6f5d0', '#f7f7f7',
+                  '#fde0ef', '#f1b6da', '#de77ae', '#c51b7d', '#8e0152'],
+    'PRGn'     : ['#00441b', '#1b7837', '#5aae61', '#a6dba0', '#d9f0d3', '#f7f7f7',
+                  '#e7d4e8', '#c2a5cf', '#9970ab', '#762a83', '#40004b'],
+    'Spectral' : ['#5e4fa2', '#3288bd', '#66c2a5', '#abdda4', '#e6f598', '#ffffbf',
+                  '#fee08b', '#fdae61', '#f46d43', '#d53e4f', '#9e0142'],
+}
+PALETTE = 'RedYellowBlue'
 
-# TODO: Set these as a command line option
-colors = []
-# colors.append((  0.0/255.0,  80.0/255.0, 242.0/255.0)) # 0050f2 Blue
-# colors.append((255.0/255.0, 255.0/255.0, 255.0/255.0)) # ffffff White
-# colors.append((255.0/255.0,   0.0/255.0,   0.0/255.0)) # ff0000 Red
+def hex_to_rgb(hex_color):
+    '''Convert a hex color (e.g., #ff0000) to an RGB tuple in the [0, 1] range.'''
+    hex_color = hex_color.lstrip('#')
+    assert len(hex_color) == 6
+    return tuple( int(hex_color[i:i+2], 16)/255.0 for i in (0, 2, 4) )
 
-# # Viridis
-# colors.append(( 25.0/255.0,  25.0/255.0, 112.0/255.0)) # #191970 Indigo
-# colors.append((  0.0/255.0, 105.0/255.0, 062.0/255.0)) # #00693e Green
-# colors.append((255.0/255.0, 168.0/255.0,  18.0/255.0)) # #ffa812 Yellow
-
-# Mango
-# colors.append((  0.0/255.0, 105.0/255.0, 062.0/255.0)) # #00693e Green
-# colors.append((255.0/255.0, 168.0/255.0,  18.0/255.0)) # #ffa812 Yellow
-# colors.append((178.0/255.0,  34.0/255.0,  34.0/255.0)) # #ff0000 Red
-
-# Mango Light
-# colors.append(( 68.0/255.0, 157.0/255.0,  72.0/255.0)) # #449D48 Green
-# colors.append((246.0/255.0, 219.0/255.0, 106.0/255.0)) # #F6DB6A Yellow
-# colors.append((229.0/255.0,  68.0/255.0,  73.0/255.0)) # #e54449 Red
-
-# Magma
-# colors.append((  0.0/255.0,   0.0/255.0, 139.0/255.0)) # #191970 Indigo
-# colors.append((255.0/255.0,  40.0/255.0,   0.0/255.0)) # ff0000 Red
-# colors.append((252.0/255.0, 247.0/255.0,  94.0/255.0)) # #ffa812 Yellow
-
-# RedYellowBlue
-colors.append((  0.0/255.0,  80.0/255.0, 242.0/255.0)) # 0050f2 Blue
-colors.append((252.0/255.0, 247.0/255.0,  94.0/255.0)) # #ffa812 Yellow
-colors.append((255.0/255.0,   0.0/255.0,   0.0/255.0)) # ff0000 Red
+def set_palette(name=PALETTE, reverse=False):
+    '''
+    Get the RGB colors of a given palette, ordered from the lowest
+    to the highest values (reversed if specified).
+    '''
+    assert name in PALETTES, f'Error: Palette {name} not available.'
+    palette = [ hex_to_rgb(color) for color in PALETTES[name] ]
+    assert len(palette) >= 3 and len(palette) % 2 == 1
+    if reverse:
+        palette = palette[::-1]
+    return palette
 
 
 # DEPRECATED: Not used for plotting since the adjusted values are now log2
@@ -336,19 +363,23 @@ def three_color_gradient(rgb1, rgb2, rgb3, mean, alpha, max_scale):
         b = (scaled_alpha * b3) + ((1.0 - scaled_alpha) * b2)
     return (r, g, b)
 
-def diverging_color_gradient(rgb_low, rgb_mid, rgb_high, value, max_abs):
+def diverging_color_gradient(palette, value, max_abs):
     '''
     Map a log2 enrichment value to a color on a diverging scale centered
-    at 0 (the genome-wide average). Values are clamped to [-max_abs, max_abs];
-    negative values go from rgb_mid to rgb_low, positive from rgb_mid to rgb_high.
+    at 0 (the genome-wide average). Values are clamped to [-max_abs, max_abs].
+    The palette is a list of RGB colors ordered from the lowest to the highest
+    values, with the middle color at 0; colors are linearly interpolated
+    between consecutive stops.
     '''
     assert max_abs > 0
-    # Scale to [-1, 1]
+    assert len(palette) >= 3 and len(palette) % 2 == 1
+    # Scale to [-1, 1], and then to a position along the palette stops
     scaled = max(-1.0, min(1.0, value/max_abs))
-    end_rgb = rgb_high if scaled >= 0 else rgb_low
-    scaled = math.fabs(scaled)
-    (r, g, b) = [ ((1.0 - scaled) * mid) + (scaled * end)
-                  for mid, end in zip(rgb_mid, end_rgb) ]
+    position = ((scaled + 1.0)/2.0) * (len(palette) - 1)
+    i = min(int(position), len(palette) - 2)
+    frac = position - i
+    (r, g, b) = [ ((1.0 - frac) * low) + (frac * high)
+                  for low, high in zip(palette[i], palette[i+1]) ]
     return (r, g, b)
 
 # Set PyCairo environment
@@ -448,7 +479,7 @@ def plot_gridlines(chromosomes, image, context, scale=SCALE, step=STEP):
 # Process the chromosomes
 #
 def process_chromosomes(chromosomes, chrom_order, wins_dict, image, 
-                        context, max_grd, max_abs, 
+                        context, max_grd, max_abs, palette,
                         plot_type='proportion', scale=SCALE, step=STEP):
     assert type(chromosomes) is dict
     assert isinstance(list(chromosomes.values())[0], Chromosome)
@@ -483,8 +514,7 @@ def process_chromosomes(chromosomes, chrom_order, wins_dict, image,
             if plot_type == 'count':
                 value = window.n_elements
             # Scale the colors based on the log2 enrichment
-            (r, g, b) = diverging_color_gradient(colors[0], colors[1], colors[2],
-                                                 value, max_abs)
+            (r, g, b) = diverging_color_gradient(palette, value, max_abs)
             # Plot a line for the midpoint of a given window.
             # Not a polygon to prevent overlapping between windows.
             context.set_dash([])
@@ -525,7 +555,7 @@ def process_chromosomes(chromosomes, chrom_order, wins_dict, image,
 #
 # Draw the Scale
 #
-def draw_scale(image, context, max_abs):
+def draw_scale(image, context, max_abs, palette):
     assert isinstance(image, Image)
     assert max_abs > 0
     # Boundaries
@@ -540,7 +570,7 @@ def draw_scale(image, context, max_abs):
     # Loop over the color space
     s = (2*max_abs)/400
     for p in np.arange(-max_abs, (max_abs+s), s):
-        (r, g, b) = diverging_color_gradient(colors[0], colors[1], colors[2], p, max_abs)
+        (r, g, b) = diverging_color_gradient(palette, p, max_abs)
         yp = scale_val_to_y(min(p, max_abs))
         context.set_dash([])
         context.move_to(x1, yp)
@@ -671,7 +701,10 @@ def draw_genome_stats(outf, chromosomes, chrom_order, win_val_dict,
                       name, plot_type = 'proportion',
                       height=IMG_HEIGHT, width=IMG_WIDTH, 
                       scale=SCALE, step=STEP, img_type='pdf',
-                      max_abs=MAX_LOG2, quantile=SCALE_QUANTILE):
+                      max_abs=MAX_LOG2, quantile=SCALE_QUANTILE,
+                      palette=None):
+    if palette is None:
+        palette = set_palette(PALETTE)
     print(f'\nMaking plot ({name}):\n    {outf}', flush=True)
     # Set an image object global variable
     image = Image(height=height, width=width, img_type=img_type)
@@ -689,10 +722,10 @@ def draw_genome_stats(outf, chromosomes, chrom_order, win_val_dict,
     max_grd = plot_gridlines(chromosomes, image, context, scale, step)
     # Process the chromosomes
     process_chromosomes(chromosomes, chrom_order, win_val_dict, 
-                        image, context, max_grd, max_abs,
+                        image, context, max_grd, max_abs, palette,
                         plot_type, scale, step)
     # Plot the scale
-    draw_scale(image, context, max_abs)
+    draw_scale(image, context, max_abs, palette)
     # Add title
     draw_title(image, context, name)
 
@@ -717,6 +750,10 @@ def main():
     # Load the target genetic elements
     windows = load_window_stats_file(args.in_table, chromosomes)
 
+    # Set the color palette
+    palette = set_palette(args.palette, args.reverse_palette)
+    print(f'\nUsing color palette: {args.palette}{" (reversed)" if args.reverse_palette else ""}', flush=True)
+
     # Plot the genome stats
 
     # 1. For the number of elements
@@ -725,7 +762,8 @@ def main():
     draw_genome_stats(outf, chromosomes, chrom_order, windows, name, 
                       plot_type='count', height=args.img_height, width=args.img_width,
                       scale=args.scale, step=args.step, img_type=args.img_format,
-                      max_abs=args.max_log2, quantile=args.scale_quantile)
+                      max_abs=args.max_log2, quantile=args.scale_quantile,
+                      palette=palette)
 
     # 2. For the proportion of sites
     outf = f'{args.out_dir}/{args.basename}.site_proportions.{args.img_format}'
@@ -733,7 +771,8 @@ def main():
     draw_genome_stats(outf, chromosomes, chrom_order, windows, name, 
                       plot_type='proportion', height=args.img_height, width=args.img_width,
                       scale=args.scale, step=args.step, img_type=args.img_format,
-                      max_abs=args.max_log2, quantile=args.scale_quantile)
+                      max_abs=args.max_log2, quantile=args.scale_quantile,
+                      palette=palette)
 
 
     print(f'\n{PROG} finished on {date()} {time()}.')

@@ -200,6 +200,8 @@ $ python3 cairo_plot_genome_stats.py -h
                                     [--img-width IMG_WIDTH]
                                     [--img-format IMG_FORMAT]
                                     [--max-log2 MAX_LOG2]
+                                    [--palette PALETTE] [--reverse-palette]
+                                    [--scale-quantile SCALE_QUANTILE]
 
   options:
     -h, --help            show this help message and exit
@@ -226,9 +228,18 @@ $ python3 cairo_plot_genome_stats.py -h
                           (int) Image width in pixels [default=500].
     --img-format IMG_FORMAT
                           (str) Image output format [default=pdf]
-    --max-log2 MAX_LOG2   (int/float) Limit of the symmetric log2 enrichment
-                          color scale; values beyond +/- this are clamped
-                          [default=3].
+    --max-log2 MAX_LOG2   (int/float/'auto') Limit of the symmetric log2
+                          enrichment color scale; values beyond +/- this are
+                          clamped. If 'auto', set the limit for each plot from
+                          the data (see --scale-quantile) [default=3].
+    --palette PALETTE     (str) Diverging color palette for the heatmaps, from
+                          depleted to enriched values [default=RedYellowBlue].
+    --reverse-palette     (flag) Reverse the order of the color palette.
+    --scale-quantile SCALE_QUANTILE
+                          (int/float) When --max-log2 is 'auto', percentile of
+                          the absolute log2 values used as the limit of the
+                          color scale, rounded up to the nearest 0.5
+                          [default=99].
 ```
 
 ### Inputs
@@ -287,11 +298,29 @@ The script generates two plots:
 | `<basename>.site_proportions.pdf` | Plot of the proportion of target bases in each window, as specified by the `PropSitesAdj` in the input table. |
 
 Both plots use a diverging color scale centered at 0, i.e., the genome-wide average. 
-Windows in blue have lower than average values (log2 enrichment < 0), and windows in 
-red have higher than average values (log2 enrichment > 0). The scale is symmetric, 
+Windows in blue (by default, but color depends on the palette used) 
+have lower than average values (log2 enrichment < 0), and windows in 
+red (again, by default but depends on the palette) have higher than 
+average values (log2 enrichment > 0). The scale is symmetric, 
 ranging from `-MAX_LOG2` to `MAX_LOG2` (set with `--max-log2`), and values outside 
-this range are colored as the limits of the scale. The number of clamped windows is 
-reported in the log.
+this range are colored as the limits of the scale. The number of clamped 
+windows is reported in the log.
+
+The colors are set with `--palette`. Available palettes are the original 3-color 
+palettes (`RedYellowBlue`, the default; `BlueWhiteRed`; `Viridis`; `Mango`; `MangoLight`; 
+and `Magma`) and the 11-class diverging palettes from [ColorBrewer](https://colorbrewer2.org) 
+(`RdYlGn`, `RdYlBu`, `RdBu`, `RdGy`, `PuOr`, `BrBG`, `PiYG`, `PRGn`, and `Spectral`). 
+The ColorBrewer palettes are oriented so that the first color in their name marks the 
+enriched values, e.g., red in `RdYlGn` for windows with higher than average values. 
+The order of any palette can be flipped using `--reverse-palette`.
+
+Alternatively, the limit of the scale can be set from the data using `--max-log2 auto`. 
+For each plot, the limit is set to a percentile (`--scale-quantile`, default 99th) of 
+the absolute log2 values, rounded up to the nearest 0.5. The selected limit is reported 
+in the log. Note that, when using `auto`, different plots may have different limits, so 
+colors are not directly comparable between them. Also, for sparse elements in which many 
+windows have no elements (e.g., small windows for coding sequences), the limit can be 
+driven by the large negative values of these empty windows.
 
 
 ### Dependencies
