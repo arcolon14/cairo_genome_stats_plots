@@ -369,15 +369,13 @@ def process_windows_output(genomic_windows, output_dir, basename):
     # elements per window.
     genome_averages = generate_genome_wide_averages(genomic_windows)
     element_mean = genome_averages['n_elements']['mean']
-    element_std = genome_averages['n_elements']['std']
     prop_mean = genome_averages['bp_prop']['mean']
-    prop_std = genome_averages['bp_prop']['std']
 
     # Generate the output file handle
     with open(outf, 'w', encoding='utf-8') as fh:
         header = ['#Chrom', 'StartBP', 'EndBP', 'MidBP',
-                  'ElementsN', 'ElementsAdj', 'ElementsZ',
-                  'PropSites', 'PropSitesAdj', 'PropSitesZ']
+                  'ElementsN', 'ElementsAdj',
+                  'PropSites', 'PropSitesAdj']
         header = '\t'.join(header)
         fh.write(f'{header}\n')
         # Loop over the windows and write to file
@@ -391,9 +389,7 @@ def process_windows_output(genomic_windows, output_dir, basename):
                 # Adjust based on the mean as a log2 enrichment, with a
                 # pseudocount of one element to handle empty windows
                 elements_adj = np.log2((window.n_elements+1)/(element_mean+1))
-                # Calculate a Z-score
-                elements_z = (window.n_elements-element_mean)/element_std
-                row += f'\t{window.n_elements}\t{elements_adj:0.8g}\t{elements_z:0.8g}'
+                row += f'\t{window.n_elements}\t{elements_adj:0.8g}'
 
                 # Proportion of elements in window
                 window_len = window.end-window.sta
@@ -402,9 +398,7 @@ def process_windows_output(genomic_windows, output_dir, basename):
                 # pseudocount of one site (1/window length) to handle empty windows
                 prop_pseudo = 1/window_len
                 prop_adj = np.log2((prop_elements+prop_pseudo)/(prop_mean+prop_pseudo))
-                # Calculate a Z-score
-                prop_z = (prop_elements-prop_mean)/prop_std
-                row += f'\t{prop_elements:0.8g}\t{prop_adj:0.8g}\t{prop_z:0.8g}'
+                row += f'\t{prop_elements:0.8g}\t{prop_adj:0.8g}'
                 fh.write(f'{row}\n')
 
 def main():

@@ -125,16 +125,16 @@ After running with the example above, the script will generate an output labelle
 `genome_genes.binned_genome_stats.tsv` with the following structure:
 
 ```sh
-#Chrom  StartBP  EndBP   MidBP   ElementsN  ElementsAdj  ElementsZ    PropSites  PropSitesAdj  PropSitesZ
-chr01   0        100000  50000   3          1.2073083    0.12362345   0.02407    2.5989019     0.98064178
-chr01   50000    150000  100000  3          1.2073083    0.12362345   0.02407    2.5989019     0.98064178
-chr01   100000   200000  150000  0          0            -0.59632651  0          0             -0.61332203
-chr01   150000   250000  200000  4          1.6097444    0.36360676   0.03955    4.2703187     2.0057585
-chr01   200000   300000  250000  0          0            -0.59632651  0          0             -0.61332203
-chr01   250000   350000  300000  0          0            -0.59632651  0          0             -0.61332203
-chr01   300000   400000  350000  9          3.621925     1.5635234    0.03525    3.8060363     1.7210039
-chr01   350000   450000  400000  7          2.8170527    1.0835567    0.02481    2.6788017     1.0296461
-chr01   400000   500000  450000  0          0            -0.59632651  0          0             -0.61332203
+#Chrom  StartBP  EndBP   MidBP   ElementsN  ElementsAdj  PropSites  PropSitesAdj
+chr01   0        100000  50000   3          0.19889659   0.02407    1.3769446
+chr01   50000    150000  100000  3          0.19889659   0.02407    1.3769446
+chr01   100000   200000  150000  0          -1.8011034   0          -9.8566751
+chr01   150000   250000  200000  4          0.52082469   0.03955    2.0931516
+chr01   200000   300000  250000  0          -1.8011034   0          -9.8566751
+chr01   250000   350000  300000  0          -1.8011034   0          -9.8566751
+chr01   300000   400000  350000  9          1.5208247    0.03525    1.9271416
+chr01   350000   450000  400000  7          1.1988966    0.02481    1.4206123
+chr01   400000   500000  450000  0          -1.8011034   0          -9.8566751
 ```
 
 Info on columns:
@@ -146,11 +146,9 @@ Info on columns:
 | `EndBP`         | End coordinate of the window in basepairs. |
 | `MidBP`         | Midpoint coordinate of the window in basepairs. |
 | `ElementsN`     | Number of elements seen in the window. |
-| `ElementsAdj`<sup>1</sup> | Adjusted number of elements in the window, according to the genome-wide average. |
-| `ElementsZ`<sup>2</sup> | Z-score of the number of elements in the window. |
-| `PropSites`<sup>3</sup> | Proportion of sites in the window corresponding to the target elements. Sites belonging to overlapping elements are counted once. |
-| `PropSitesAdj`<sup>1</sup> | Adjusted proportion of sites in the window corresponding to the target elements, according to the genome-wide average. |
-| `PropSitesZ`<sup>2</sup> | Z-score of the roportion of sites in the window corresponding to the target elements. |
+| `ElementsAdj`<sup>1</sup> | Log2 enrichment of the number of elements in the window, relative to the genome-wide average. |
+| `PropSites`<sup>2</sup> | Proportion of sites in the window corresponding to the target elements. Sites belonging to overlapping elements are counted once. |
+| `PropSitesAdj`<sup>1</sup> | Log2 enrichment of the proportion of sites in the window corresponding to the target elements, relative to the genome-wide average. |
 
 <sup>1</sup>For standardization purposes, the adjusted values 
 correspond to the log2 enrichment of the window relative to the genome-wide mean, 
@@ -162,14 +160,7 @@ window contains twice as many elements as the genome-wide average, while a value
 one element (`ElementsAdj`) or one site (`PropSitesAdj`, i.e., `1/window_length`) 
 is added to both the window value and the genome-wide mean.
 
-<sup>3</sup>The Z-score or the standard error, shows how many std. deviations
-a value is from the mean. Values greater than 0 describe values that many std.
-deviations away from the mean, e.g., a score of 3 shows a value three std. deviations
-higher than the mean, while a score of -2 shows a value two std. deviations smaller
-than the mean. For example here, a `ElementsZ` of 1.6 indicates that the given window
-contains a number of elements 1.5 std. deviations higher than the genome-wide mean.
-
-<sup>3</sup>The `PropSites` column describes the proportion of sites in a window 
+<sup>2</sup>The `PropSites` column describes the proportion of sites in a window 
 corresponding to the elements of interest. In other words, if in the span of a 
 100 Kbp window, 30 Kbp of those sites are in the span of an element of interest 
 (e.g., genes), then the window will have a `PropSites` value of 0.3. Similar to 

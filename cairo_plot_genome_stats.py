@@ -219,10 +219,8 @@ def load_window_stats_file(win_f, chromosomes):
     #    3: MidBP
     #    4: ElementsN
     #    5: ElementsAdj
-    #    6: ElementsZ
-    #    7: PropSites
-    #    8: PropSitesAdj
-    #    9: PropSitesZ
+    #    6: PropSites
+    #    7: PropSitesAdj
     # The adjusted values are found by name in the header, since they are
     # the ones plotted.
     cols = None
