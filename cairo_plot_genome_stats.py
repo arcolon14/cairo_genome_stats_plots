@@ -19,6 +19,24 @@ SCALE_ROUND = 0.5
 #
 # Command line options
 #
+def parse_scale_limit(value, name):
+    '''
+    Parse a limit of the color scale, either 'auto' or a number. Min
+    limits must be negative and max limits positive.
+    '''
+    assert name in ['Min', 'Max']
+    if value.lower() == 'auto':
+        return 'auto'
+    try:
+        value = float(value)
+    except ValueError:
+        sys.exit(f'Error: {name} log2 value of the color scale ({value}) must be a number or \'auto\'.')
+    if name == 'Max' and not value > 0:
+        sys.exit(f'Error: Max log2 value of the color scale ({value}) must be > 0.')
+    if name == 'Min' and not value < 0:
+        sys.exit(f'Error: Min log2 value of the color scale ({value}) must be < 0.')
+    return value
+
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument('-f', '--fai', required=True,
@@ -45,7 +63,9 @@ def parse_args():
     p.add_argument('--img-format', required=False, default='pdf',
                    help='(str) Image output format [default=pdf]')
     p.add_argument('--max-log2', required=False, default=str(MAX_LOG2),
-                   help=f'(int/float/\'auto\') Limit of the symmetric log2 enrichment color scale; values beyond +/- this are clamped. If \'auto\', set the limit for each plot from the data (see --scale-quantile) [default={MAX_LOG2}].')
+                   help=f'(int/float/\'auto\') Upper limit of the log2 enrichment color scale; values above this are clamped. If \'auto\', set the limit for each plot from the data (see --scale-quantile) [default={MAX_LOG2}].')
+    p.add_argument('--min-log2', required=False, default=None,
+                   help='(int/float/\'auto\') Lower limit of the log2 enrichment color scale (a negative value); values below this are clamped. If \'auto\', set the limit for each plot from the data (see --scale-quantile). If not set, the scale is symmetric, i.e., -1 * --max-log2 [default=None].')
     p.add_argument('--palette', required=False, default=PALETTE, choices=list(PALETTES),
                    help=f'(str) Diverging color palette for the heatmaps, from depleted to enriched values. ColorBrewer palettes are oriented so that the first color in the name marks enriched values (e.g., red in RdYlGn) [default={PALETTE}].')
     p.add_argument('--reverse-palette', required=False, action='store_true',
@@ -61,16 +81,10 @@ def parse_args():
     assert os.path.exists(args.in_table)
     assert os.path.exists(args.out_dir)
     assert args.img_format in ['pdf', 'svg']
-    # The max log2 is either 'auto' (stored as None) or a number
-    if args.max_log2.lower() == 'auto':
-        args.max_log2 = None
-    else:
-        try:
-            args.max_log2 = float(args.max_log2)
-        except ValueError:
-            sys.exit(f'Error: Max log2 value of the color scale ({args.max_log2}) must be a number or \'auto\'.')
-        if not args.max_log2 > 0:
-            sys.exit(f'Error: Max log2 value of the color scale ({args.max_log2}) must be > 0.')
+    # The limits of the scale are either 'auto' or a number
+    args.max_log2 = parse_scale_limit(args.max_log2, 'Max')
+    if args.min_log2 is not None:
+        args.min_log2 = parse_scale_limit(args.min_log2, 'Min')
     if not 0 < args.scale_quantile <= 100:
         sys.exit(f'Error: Scale quantile ({args.scale_quantile}) must be > 0 and <= 100.')
     args.out_dir = args.out_dir.rstrip('/')
@@ -271,10 +285,10 @@ PALETTES = {
     # Original palettes
     'RedYellowBlue' : ['#0050f2', '#fcf75e', '#ff0000'], # Blue, Yellow, Red
     'BlueWhiteRed'  : ['#0050f2', '#ffffff', '#ff0000'], # Blue, White, Red
-    'Viridis'       : ['#191970', '#00693e', '#ffa812'], # Indigo, Green, Yellow
+    'ViridisClassic': ['#191970', '#00693e', '#ffa812'], # Indigo, Green, Yellow
     'Mango'         : ['#00693e', '#ffa812', '#b22222'], # Green, Yellow, Red
     'MangoLight'    : ['#449d48', '#f6db6a', '#e54449'], # Green, Yellow, Red
-    'Magma'         : ['#00008b', '#ff2800', '#fcf75e'], # Indigo, Red, Yellow
+    'MagmaClassic'  : ['#00008b', '#ff2800', '#fcf75e'], # Indigo, Red, Yellow
     # ColorBrewer diverging palettes (11 classes; https://colorbrewer2.org).
     # Reversed from the ColorBrewer order, so that the first color in the name
     # (e.g., Red in RdYlGn) corresponds to the enriched values.
@@ -296,6 +310,25 @@ PALETTES = {
                   '#e7d4e8', '#c2a5cf', '#9970ab', '#762a83', '#40004b'],
     'Spectral' : ['#5e4fa2', '#3288bd', '#66c2a5', '#abdda4', '#e6f598', '#ffffbf',
                   '#fee08b', '#fdae61', '#f46d43', '#d53e4f', '#9e0142'],
+    # Viridis color maps (11 colors; from the R viridisLite package; also in matplotlib).
+    # These are sequential, perceptually uniform color maps, so the middle color (log2
+    # of 0) is not a neutral color. `cividis` is optimized for color vision deficiency.
+    'viridis'   : ['#440154', '#482576', '#414487', '#35608d', '#2a788e', '#21908c',
+                  '#22a884', '#43bf71', '#7ad151', '#bbdf27', '#fde725'],
+    'magma'     : ['#000004', '#150e37', '#3b0f70', '#641a80', '#8c2981', '#b63679',
+                  '#de4968', '#f76f5c', '#fe9f6d', '#fece91', '#fcfdbf'],
+    'inferno'   : ['#000004', '#170c3a', '#420a68', '#6b186e', '#932667', '#bb3754',
+                  '#dd513a', '#f3771a', '#fca50a', '#f6d645', '#fcffa4'],
+    'plasma'    : ['#0d0887', '#42049e', '#6a00a8', '#900da4', '#b12a90', '#cc4678',
+                  '#e16462', '#f1844b', '#fca636', '#fcce25', '#f0f921'],
+    'cividis'   : ['#00204d', '#00326f', '#31446b', '#4e576c', '#666970', '#7c7b78',
+                  '#958f78', '#b0a473', '#cbba69', '#e7d159', '#ffea46'],
+    'rocket'    : ['#03051a', '#261433', '#4c1d4b', '#751f58', '#a11a5b', '#cb1b4f',
+                  '#e83f3f', '#f2704d', '#f69c73', '#f7c5a5', '#faebdd'],
+    'mako'      : ['#0b0405', '#26172a', '#382a54', '#414081', '#395d9c', '#357ba2',
+                  '#3497a9', '#3db4ad', '#60ceac', '#a8e1bc', '#def5e5'],
+    'turbo'     : ['#30123b', '#455bcd', '#3e9bfe', '#18d6cb', '#46f884', '#a2fc3c',
+                  '#e1dd37', '#fea632', '#f05b12', '#c42503', '#7a0403'],
 }
 PALETTE = 'RedYellowBlue'
 
@@ -363,18 +396,23 @@ def three_color_gradient(rgb1, rgb2, rgb3, mean, alpha, max_scale):
         b = (scaled_alpha * b3) + ((1.0 - scaled_alpha) * b2)
     return (r, g, b)
 
-def diverging_color_gradient(palette, value, max_abs):
+def diverging_color_gradient(palette, value, scale_min, scale_max):
     '''
     Map a log2 enrichment value to a color on a diverging scale centered
-    at 0 (the genome-wide average). Values are clamped to [-max_abs, max_abs].
-    The palette is a list of RGB colors ordered from the lowest to the highest
-    values, with the middle color at 0; colors are linearly interpolated
-    between consecutive stops.
+    at 0 (the genome-wide average). Negative values are scaled to the lower
+    half of the palette based on scale_min, and positive values to the upper
+    half based on scale_max, so each side can have a different range. Values
+    are clamped to [scale_min, scale_max]. The palette is a list of RGB colors
+    ordered from the lowest to the highest values, with the middle color at 0;
+    colors are linearly interpolated between consecutive stops.
     '''
-    assert max_abs > 0
+    assert scale_min < 0 < scale_max
     assert len(palette) >= 3 and len(palette) % 2 == 1
     # Scale to [-1, 1], and then to a position along the palette stops
-    scaled = max(-1.0, min(1.0, value/max_abs))
+    if value >= 0:
+        scaled = min(1.0, value/scale_max)
+    else:
+        scaled = max(-1.0, value/math.fabs(scale_min))
     position = ((scaled + 1.0)/2.0) * (len(palette) - 1)
     i = min(int(position), len(palette) - 2)
     frac = position - i
@@ -479,7 +517,7 @@ def plot_gridlines(chromosomes, image, context, scale=SCALE, step=STEP):
 # Process the chromosomes
 #
 def process_chromosomes(chromosomes, chrom_order, wins_dict, image, 
-                        context, max_grd, max_abs, palette,
+                        context, max_grd, scale_min, scale_max, palette,
                         plot_type='proportion', scale=SCALE, step=STEP):
     assert type(chromosomes) is dict
     assert isinstance(list(chromosomes.values())[0], Chromosome)
@@ -514,7 +552,7 @@ def process_chromosomes(chromosomes, chrom_order, wins_dict, image,
             if plot_type == 'count':
                 value = window.n_elements
             # Scale the colors based on the log2 enrichment
-            (r, g, b) = diverging_color_gradient(palette, value, max_abs)
+            (r, g, b) = diverging_color_gradient(palette, value, scale_min, scale_max)
             # Plot a line for the midpoint of a given window.
             # Not a polygon to prevent overlapping between windows.
             context.set_dash([])
@@ -555,23 +593,54 @@ def process_chromosomes(chromosomes, chrom_order, wins_dict, image,
 #
 # Draw the Scale
 #
-def draw_scale(image, context, max_abs, palette):
+def scale_side_ticks(limit, max_ticks=3):
+    '''
+    Set the intermediate tick marks for one side of the color scale, i.e.,
+    between 0 and the given limit. Use the smallest 'nice' step that results
+    in at most max_ticks ticks, and skip those too close to the limit.
+    '''
+    assert limit != 0
+    sign = 1 if limit > 0 else -1
+    limit = math.fabs(limit)
+    step = limit
+    for nice in [0.25, 0.5, 1, 2, 5, 10, 20, 50]:
+        if limit/nice <= max_ticks:
+            step = nice
+            break
+    ticks = list()
+    tick = step
+    # Skip ticks that are within 40% of a step from the limit, for space purposes
+    while tick < limit - (0.4*step):
+        ticks.append(sign*tick)
+        tick += step
+    return ticks
+
+def draw_scale(image, context, scale_min, scale_max, palette):
     assert isinstance(image, Image)
-    assert max_abs > 0
+    assert scale_min < 0 < scale_max
     # Boundaries
     x1 = image.max_x*0.985
     x2 = image.max_x*1.015
     y1 = image.max_tck*0.795
     y2 = image.max_tck*0.995
     key_h = y2-y1
-    # Scale a log2 value in [-max_abs, max_abs] to a Y position in the key
+    # Scale a log2 value to a Y position in the key. The value of 0 is at the
+    # middle of the key, with the negative values scaled to the lower half
+    # and the positive values to the upper half.
     def scale_val_to_y(val):
-        return y2-(key_h*((val+max_abs)/(2*max_abs)))
-    # Loop over the color space
-    s = (2*max_abs)/400
-    for p in np.arange(-max_abs, (max_abs+s), s):
-        (r, g, b) = diverging_color_gradient(palette, p, max_abs)
-        yp = scale_val_to_y(min(p, max_abs))
+        if val >= 0:
+            frac = 0.5 + (0.5*(val/scale_max))
+        else:
+            frac = 0.5 - (0.5*(val/scale_min))
+        return y2-(key_h*frac)
+    # Loop over the color space, from the bottom to the top of the key
+    for frac in np.linspace(0, 1, 401):
+        if frac >= 0.5:
+            p = (frac - 0.5)*2*scale_max
+        else:
+            p = (0.5 - frac)*2*scale_min
+        (r, g, b) = diverging_color_gradient(palette, p, scale_min, scale_max)
+        yp = y2-(key_h*frac)
         context.set_dash([])
         context.move_to(x1, yp)
         context.line_to(x2, yp)
@@ -596,20 +665,20 @@ def draw_scale(image, context, max_abs, palette):
     #
     # Add labels
     #
-    # Symmetric ticks around 0 (the genome-wide average), using integer
-    # log2 steps; keep at most ~3 ticks on each side for space purposes
-    tick_step = max(1, math.ceil(max_abs/3))
-    label_ticks = [ float(t) for t in range(-int(max_abs), int(max_abs)+1)
-                    if t % tick_step == 0 ]
-    # Always label the limits of the scale
-    for tick in [-max_abs, max_abs]:
-        if tick not in label_ticks:
-            label_ticks.append(tick)
+    # Ticks at 0 (the genome-wide average) and the limits of the scale,
+    # plus intermediate ticks on each side
+    label_ticks = [0.0, scale_min, scale_max]
+    for limit in [scale_min, scale_max]:
+        label_ticks += scale_side_ticks(limit)
     # Decrease the font size for the labels
     context.set_font_size((image.font)*0.8) 
     # Plot the axis ticks
+    # Format all the labels with the same number of decimal places: at least
+    # one, or the most needed by any of the ticks (e.g., two for 0.25)
+    decimals = max([1] + [ len(f'{round(tick, 3):g}'.partition('.')[2])
+                           for tick in label_ticks ])
     for tick in label_ticks:
-        lab = f'{tick:g}'
+        lab = f'{tick:.{decimals}f}'
         label_height = context.text_extents(lab)[3]
         # Right-align using the advance width, so that the digits line up
         # regardless of the bearing and ink width of each glyph
@@ -667,31 +736,77 @@ def get_window_values(win_val_dict, value_type='proportion'):
                 values.append(window.n_elements)
     return np.array(values)
 
-def auto_scale_limit(values, quantile=SCALE_QUANTILE, round_to=SCALE_ROUND):
+def auto_scale_limit(values, quantile=SCALE_QUANTILE, round_to=SCALE_ROUND, side='both'):
     '''
-    Set the limit of the symmetric color scale from the data, as the given
-    percentile of the absolute log2 values, rounded up to the nearest
-    `round_to` value (with a minimum of `round_to`).
+    Set a limit of the color scale from the data, rounded away from 0 to the
+    nearest `round_to` value (with a minimum magnitude of `round_to`):
+      both:  the given percentile of the absolute log2 values (symmetric scale).
+      upper: the given percentile of the log2 values.
+      lower: the (100 - quantile) percentile of the log2 values (a negative limit).
     '''
     assert 0 < quantile <= 100
     assert round_to > 0
-    limit = np.percentile(np.abs(values), quantile)
-    limit = math.ceil(limit/round_to)*round_to
-    return max(round_to, limit)
+    assert side in ['both', 'upper', 'lower']
+    if side == 'both':
+        limit = np.percentile(np.abs(values), quantile)
+    elif side == 'upper':
+        limit = np.percentile(values, quantile)
+    else:
+        limit = -1*np.percentile(values, 100-quantile)
+    limit = max(round_to, math.ceil(limit/round_to)*round_to)
+    if side == 'lower':
+        limit = -1*limit
+    return limit
 
-def report_value_distribution(values, max_abs, auto_scale=False, quantile=SCALE_QUANTILE):
+def ordinal(number):
+    '''Format a number as an ordinal, e.g., 1st, 2nd, 99th, 99.5th.'''
+    text = f'{number:g}'
+    if not float(number).is_integer() or 10 <= int(number) % 100 <= 20:
+        return f'{text}th'
+    return text + {1: 'st', 2: 'nd', 3: 'rd'}.get(int(number) % 10, 'th')
+
+def set_scale_limits(values, min_log2=None, max_log2=MAX_LOG2, quantile=SCALE_QUANTILE):
+    '''
+    Set the lower and upper limits of the color scale. Each limit is either
+    a number or 'auto' (set from the data). If min_log2 is not set, the scale
+    is symmetric around 0, i.e., [-max_log2, max_log2].
+    Returns the two limits and a description of how they were set.
+    '''
+    if min_log2 is None:
+        # Symmetric scale
+        if max_log2 == 'auto':
+            limit = auto_scale_limit(values, quantile, side='both')
+            source = f'Auto, symmetric; {ordinal(quantile)} percentile of |log2| = {np.percentile(np.abs(values), quantile):,.4g}, rounded up'
+        else:
+            limit = max_log2
+            source = 'Fixed, symmetric'
+        return -1*limit, limit, source
+    # Asymmetric scale, each side set independently
+    sources = list()
+    if min_log2 == 'auto':
+        scale_min = auto_scale_limit(values, quantile, side='lower')
+        sources.append(f'min: auto; {ordinal(100-quantile)} percentile = {np.percentile(values, 100-quantile):,.4g}, rounded down')
+    else:
+        scale_min = min_log2
+        sources.append('min: fixed')
+    if max_log2 == 'auto':
+        scale_max = auto_scale_limit(values, quantile, side='upper')
+        sources.append(f'max: auto; {ordinal(quantile)} percentile = {np.percentile(values, quantile):,.4g}, rounded up')
+    else:
+        scale_max = max_log2
+        sources.append('max: fixed')
+    return scale_min, scale_max, f'Asymmetric; {"; ".join(sources)}'
+
+def report_value_distribution(values, scale_min, scale_max, source):
     '''
     Report the distribution of the log2 enrichment values, including how
     many fall outside the limits of the color scale.
     '''
-    n_low = np.sum(values < -max_abs)
-    n_high = np.sum(values > max_abs)
-    source = 'Fixed'
-    if auto_scale:
-        source = f'Auto; {quantile:g}th percentile of |log2| = {np.percentile(np.abs(values), quantile):,.4g}, rounded up'
+    n_low = np.sum(values < scale_min)
+    n_high = np.sum(values > scale_max)
     print(f'''    Log2 enrichment across {len(values):,} windows:
         Min: {np.min(values):,.4g}; Median: {np.median(values):,.4g}; Max: {np.max(values):,.4g}
-        Color scale limit: +/-{max_abs:g} ({source})
+        Color scale limits: {scale_min:g} to {scale_max:g} ({source})
         Clamped to the color scale: {n_low:,} below; {n_high:,} above''',
           flush=True)
 
@@ -701,7 +816,7 @@ def draw_genome_stats(outf, chromosomes, chrom_order, win_val_dict,
                       name, plot_type = 'proportion',
                       height=IMG_HEIGHT, width=IMG_WIDTH, 
                       scale=SCALE, step=STEP, img_type='pdf',
-                      max_abs=MAX_LOG2, quantile=SCALE_QUANTILE,
+                      min_log2=None, max_log2=MAX_LOG2, quantile=SCALE_QUANTILE,
                       palette=None):
     if palette is None:
         palette = set_palette(PALETTE)
@@ -711,21 +826,19 @@ def draw_genome_stats(outf, chromosomes, chrom_order, win_val_dict,
     surface, context = image.cairo_context(outf)
     # Adjust the start of the chromosomes to the width of their labels
     image.fit_chrom_labels(context, [ str(chromosomes[chrom].name) for chrom in chrom_order ])
-    # Get the distribution of values along the genome, and set the limit
-    # of the color scale from the data if needed (max_abs of None)
+    # Get the distribution of values along the genome, and set the limits
+    # of the color scale, either fixed or from the data
     values = get_window_values(win_val_dict, plot_type)
-    auto_scale = max_abs is None
-    if auto_scale:
-        max_abs = auto_scale_limit(values, quantile)
-    report_value_distribution(values, max_abs, auto_scale, quantile)
+    scale_min, scale_max, source = set_scale_limits(values, min_log2, max_log2, quantile)
+    report_value_distribution(values, scale_min, scale_max, source)
     # Plot gridlines
     max_grd = plot_gridlines(chromosomes, image, context, scale, step)
     # Process the chromosomes
     process_chromosomes(chromosomes, chrom_order, win_val_dict, 
-                        image, context, max_grd, max_abs, palette,
+                        image, context, max_grd, scale_min, scale_max, palette,
                         plot_type, scale, step)
     # Plot the scale
-    draw_scale(image, context, max_abs, palette)
+    draw_scale(image, context, scale_min, scale_max, palette)
     # Add title
     draw_title(image, context, name)
 
@@ -762,7 +875,8 @@ def main():
     draw_genome_stats(outf, chromosomes, chrom_order, windows, name, 
                       plot_type='count', height=args.img_height, width=args.img_width,
                       scale=args.scale, step=args.step, img_type=args.img_format,
-                      max_abs=args.max_log2, quantile=args.scale_quantile,
+                      min_log2=args.min_log2, max_log2=args.max_log2,
+                      quantile=args.scale_quantile,
                       palette=palette)
 
     # 2. For the proportion of sites
@@ -771,7 +885,8 @@ def main():
     draw_genome_stats(outf, chromosomes, chrom_order, windows, name, 
                       plot_type='proportion', height=args.img_height, width=args.img_width,
                       scale=args.scale, step=args.step, img_type=args.img_format,
-                      max_abs=args.max_log2, quantile=args.scale_quantile,
+                      min_log2=args.min_log2, max_log2=args.max_log2,
+                      quantile=args.scale_quantile,
                       palette=palette)
 
 
