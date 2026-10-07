@@ -567,14 +567,27 @@ def draw_scale(image, context, max_abs):
     for tick in label_ticks:
         lab = f'{tick:g}'
         label_height = context.text_extents(lab)[3]
-        label_width = context.text_extents(lab)[2]
+        # Right-align using the advance width, so that the digits line up
+        # regardless of the bearing and ink width of each glyph
+        label_width = context.text_extents(lab)[4]
         lab_x = (x1*0.995)-label_width
         lab_y = scale_val_to_y(tick)+(label_height/2)
         txt_col = ChromColors('text')
         context.move_to(lab_x, lab_y)
         context.set_source_rgb(txt_col.r, txt_col.g, txt_col.b)
         context.show_text(lab)
-    
+
+    # Add the title of the scale, centered above the color key
+    lab = 'log2'
+    (lab_xb, lab_yb, label_width, label_height, _, _) = context.text_extents(lab)
+    lab_x = x1+((x2-x1)/2)-(lab_xb+(label_width/2))
+    # Leave space between the key and the bottom of the text (e.g., the descender of 'g')
+    lab_y = y1-(label_height+lab_yb)-(image.font*0.3)
+    txt_col = ChromColors('text')
+    context.move_to(lab_x, lab_y)
+    context.set_source_rgb(txt_col.r, txt_col.g, txt_col.b)
+    context.show_text(lab)
+
     # Reset font size
     context.set_font_size(image.font)
 
