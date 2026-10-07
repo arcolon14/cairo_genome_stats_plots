@@ -153,12 +153,14 @@ Info on columns:
 | `PropSitesZ`<sup>2</sup> | Z-score of the roportion of sites in the window corresponding to the target elements. |
 
 <sup>1</sup>For standardization purposes, the adjusted values 
-correspond to the value of the window divided by the genome-wide mean, i.e., the 
-`ElementsAdj` describes the number of elements of interest observed in a window,
-scaled by the genome-wide average. Values greater than 1 describe sites with 
-higher than average values, while values smaller than 1 describe window with smaller 
-than average values. For example, a `ElementsAdj` of 2 indicates that the given 
-window contains twice as elements than the genome-wide average.
+correspond to the log2 enrichment of the window relative to the genome-wide mean, 
+i.e., `log2(window_value/genome_mean)`. Values greater than 0 describe windows with 
+higher than average values, while values smaller than 0 describe windows with smaller 
+than average values. For example, a `ElementsAdj` of 1 indicates that the given 
+window contains twice as many elements as the genome-wide average, while a value of 
+-1 indicates half as many. To handle windows without any elements, a pseudocount of 
+one element (`ElementsAdj`) or one site (`PropSitesAdj`, i.e., `1/window_length`) 
+is added to both the window value and the genome-wide mean.
 
 <sup>3</sup>The Z-score or the standard error, shows how many std. deviations
 a value is from the mean. Values greater than 0 describe values that many std.
@@ -171,7 +173,8 @@ contains a number of elements 1.5 std. deviations higher than the genome-wide me
 corresponding to the elements of interest. In other words, if in the span of a 
 100 Kbp window, 30 Kbp of those sites are in the span of an element of interest 
 (e.g., genes), then the window will have a `PropSites` value of 0.3. Similar to 
-`ElementsAdj`, this value is then scaled by the genome-wide average in `PropSitesAdj`.
+`ElementsAdj`, this value is then reported as a log2 enrichment over the genome-wide 
+average in `PropSitesAdj`.
 
 ### Dependencies
 
@@ -196,6 +199,7 @@ $ python3 cairo_plot_genome_stats.py -h
                                     [--img-height IMG_HEIGHT]
                                     [--img-width IMG_WIDTH]
                                     [--img-format IMG_FORMAT]
+                                    [--max-log2 MAX_LOG2]
 
   options:
     -h, --help            show this help message and exit
@@ -222,6 +226,9 @@ $ python3 cairo_plot_genome_stats.py -h
                           (int) Image width in pixels [default=500].
     --img-format IMG_FORMAT
                           (str) Image output format [default=pdf]
+    --max-log2 MAX_LOG2   (int/float) Limit of the symmetric log2 enrichment
+                          color scale; values beyond +/- this are clamped
+                          [default=3].
 ```
 
 ### Inputs
@@ -278,6 +285,13 @@ The script generates two plots:
 | ---- | ----------- |
 | `<basename>.num_elements.pdf` | Plot of the number of elements in each window, as specified by the `ElementsAdj` column in the input table. |
 | `<basename>.site_proportions.pdf` | Plot of the proportion of target bases in each window, as specified by the `PropSitesAdj` in the input table. |
+
+Both plots use a diverging color scale centered at 0, i.e., the genome-wide average. 
+Windows in blue have lower than average values (log2 enrichment < 0), and windows in 
+red have higher than average values (log2 enrichment > 0). The scale is symmetric, 
+ranging from `-MAX_LOG2` to `MAX_LOG2` (set with `--max-log2`), and values outside 
+this range are colored as the limits of the scale. The number of clamped windows is 
+reported in the log.
 
 
 ### Dependencies

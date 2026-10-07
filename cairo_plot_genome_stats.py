@@ -12,6 +12,7 @@ STEP = 5_000_000
 IMG_WIDTH = 500
 IMG_HEIGHT = 500
 FONT_SIZE = 10
+MAX_LOG2 = 3
 
 #
 # Command line options
@@ -41,6 +42,8 @@ def parse_args():
                    help=f'(int) Image width in pixels [default={IMG_WIDTH}].')
     p.add_argument('--img-format', required=False, default='pdf',
                    help='(str) Image output format [default=pdf]')
+    p.add_argument('--max-log2', required=False, default=MAX_LOG2, type=float,
+                   help=f'(int/float) Limit of the symmetric log2 enrichment color scale; values beyond +/- this are clamped [default={MAX_LOG2}].')
     # Check inputs
     args = p.parse_args()
     assert args.scale <= args.min_len
@@ -50,6 +53,8 @@ def parse_args():
     assert os.path.exists(args.in_table)
     assert os.path.exists(args.out_dir)
     assert args.img_format in ['pdf', 'svg']
+    if not args.max_log2 > 0:
+        sys.exit(f'Error: Max log2 value of the color scale ({args.max_log2}) must be > 0.')
     args.out_dir = args.out_dir.rstrip('/')
     # Adjust the basename if missing
     if args.basename is None:
@@ -180,14 +185,24 @@ def load_window_stats_file(win_f, chromosomes):
     #    3: MidBP
     #    4: ElementsN
     #    5: ElementsAdj
-    #    6: PropSites
-    #    7: PropSitesAdj
+    #    6: ElementsZ
+    #    7: PropSites
+    #    8: PropSitesAdj
+    #    9: PropSitesZ
+    # The adjusted values are found by name in the header, since they are
+    # the ones plotted.
+    cols = None
 
     # Parse the input windows file
     with open(win_f) as fh:
         for line in fh:
             if line.startswith('#'):
+                header = line.lstrip('#').strip('\n').split('\t')
+                if 'ElementsAdj' in header and 'PropSitesAdj' in header:
+                    cols = { col : i for i, col in enumerate(header) }
                 continue
+            if cols is None:
+                sys.exit('Error: input windows table must have a header with the `ElementsAdj` and `PropSitesAdj` columns.')
             records += 1
             fields = line.strip('\n').split('\t')
             chrom = fields[0]
@@ -196,8 +211,8 @@ def load_window_stats_file(win_f, chromosomes):
             start = float(fields[1])
             end = float(fields[2])
             mid = float(fields[3])
-            n_elements = float(fields[5])
-            proportion = float(fields[7])
+            n_elements = float(fields[cols['ElementsAdj']])
+            proportion = float(fields[cols['PropSitesAdj']])
             # Make the class for the window
             window_stat = WindowStat(chrom, start, end, mid, n_elements, proportion)
             wins_dict[chrom].append(window_stat)
@@ -262,6 +277,8 @@ colors.append((252.0/255.0, 247.0/255.0,  94.0/255.0)) # #ffa812 Yellow
 colors.append((255.0/255.0,   0.0/255.0,   0.0/255.0)) # ff0000 Red
 
 
+# DEPRECATED: Not used for plotting since the adjusted values are now log2
+# enrichments centered at 0. Kept for reference; see `diverging_color_gradient()`.
 def scale_sigmoid_color_mean(mean, val):
     '''
     Plot the values using a Gompertz curve: y(t) = ae^(-be(^-ct))
@@ -279,6 +296,8 @@ def scale_sigmoid_color_mean(mean, val):
     val  = a * math.exp(-1 * b * (math.exp(-1 * c * (val - 2 - mean))))
     return val
 
+# DEPRECATED: Not used for plotting since the adjusted values are now log2
+# enrichments centered at 0. Kept for reference; see `diverging_color_gradient()`.
 def three_color_gradient(rgb1, rgb2, rgb3, mean, alpha, max_scale):
     (r1, g1, b1) = rgb1
     (r2, g2, b2) = rgb2
@@ -301,6 +320,21 @@ def three_color_gradient(rgb1, rgb2, rgb3, mean, alpha, max_scale):
         r = (scaled_alpha * r3) + ((1.0 - scaled_alpha) * r2)
         g = (scaled_alpha * g3) + ((1.0 - scaled_alpha) * g2)
         b = (scaled_alpha * b3) + ((1.0 - scaled_alpha) * b2)
+    return (r, g, b)
+
+def diverging_color_gradient(rgb_low, rgb_mid, rgb_high, value, max_abs):
+    '''
+    Map a log2 enrichment value to a color on a diverging scale centered
+    at 0 (the genome-wide average). Values are clamped to [-max_abs, max_abs];
+    negative values go from rgb_mid to rgb_low, positive from rgb_mid to rgb_high.
+    '''
+    assert max_abs > 0
+    # Scale to [-1, 1]
+    scaled = max(-1.0, min(1.0, value/max_abs))
+    end_rgb = rgb_high if scaled >= 0 else rgb_low
+    scaled = math.fabs(scaled)
+    (r, g, b) = [ ((1.0 - scaled) * mid) + (scaled * end)
+                  for mid, end in zip(rgb_mid, end_rgb) ]
     return (r, g, b)
 
 # Set PyCairo environment
@@ -386,7 +420,7 @@ def plot_gridlines(chromosomes, image, context, scale=SCALE, step=STEP):
 # Process the chromosomes
 #
 def process_chromosomes(chromosomes, chrom_order, wins_dict, image, 
-                        context, max_grd, mean_val, max_val, 
+                        context, max_grd, max_abs, 
                         plot_type='proportion', scale=SCALE, step=STEP):
     assert type(chromosomes) is dict
     assert isinstance(list(chromosomes.values())[0], Chromosome)
@@ -420,9 +454,9 @@ def process_chromosomes(chromosomes, chrom_order, wins_dict, image,
             value = window.proportion
             if plot_type == 'count':
                 value = window.n_elements
-            # Scale the colors based on the distribution of values
-            (r, g, b) = three_color_gradient(colors[0], colors[1], colors[2],
-                                             mean_val, value, max_val)
+            # Scale the colors based on the log2 enrichment
+            (r, g, b) = diverging_color_gradient(colors[0], colors[1], colors[2],
+                                                 value, max_abs)
             # Plot a line for the midpoint of a given window.
             # Not a polygon to prevent overlapping between windows.
             context.set_dash([])
@@ -462,19 +496,23 @@ def process_chromosomes(chromosomes, chrom_order, wins_dict, image,
 #
 # Draw the Scale
 #
-def draw_scale(image, context, mean_val, max_val):
+def draw_scale(image, context, max_abs):
     assert isinstance(image, Image)
+    assert max_abs > 0
     # Boundaries
     x1 = image.max_x*0.985
     x2 = image.max_x*1.015
     y1 = image.max_tck*0.795
     y2 = image.max_tck*0.995
+    key_h = y2-y1
+    # Scale a log2 value in [-max_abs, max_abs] to a Y position in the key
+    def scale_val_to_y(val):
+        return y2-(key_h*((val+max_abs)/(2*max_abs)))
     # Loop over the color space
-    s=0.005
-    for p in np.arange(0,(max_val+s),s):
-        (r, g, b) = three_color_gradient(colors[0], colors[1], colors[2], mean_val, p, max_val)
-        key_h = y2-y1
-        yp = y2-(key_h*(p/max_val))
+    s = (2*max_abs)/400
+    for p in np.arange(-max_abs, (max_abs+s), s):
+        (r, g, b) = diverging_color_gradient(colors[0], colors[1], colors[2], p, max_abs)
+        yp = scale_val_to_y(min(p, max_abs))
         context.set_dash([])
         context.move_to(x1, yp)
         context.line_to(x2, yp)
@@ -499,39 +537,24 @@ def draw_scale(image, context, mean_val, max_val):
     #
     # Add labels
     #
-    label_ticks = list()
-    # Add additional ticks, as needed
-    for tick in [0.0, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0]:
-        # Dont add the 0.5 if the max is > 5, for space purposes
-        if tick == 0.5:
-            if max_val > 5:
-                continue
-        # Dont add the 2.0 if the max is > 10, for space purposes
-        if tick == 2.0:
-            if max_val > 10:
-                continue
-        # Dont add the 5.0 if the max is > 50, for space purposes
-        if tick == 5.0:
-            if max_val > 50:
-                continue
-        if max_val > tick:
-            label_ticks.append(float(tick))
-    # Add the max tick
-    max_val = float(round(max_val+s))
-    label_ticks.append(max_val)
+    # Symmetric ticks around 0 (the genome-wide average), using integer
+    # log2 steps; keep at most ~3 ticks on each side for space purposes
+    tick_step = max(1, math.ceil(max_abs/3))
+    label_ticks = [ float(t) for t in range(-int(max_abs), int(max_abs)+1)
+                    if t % tick_step == 0 ]
+    # Always label the limits of the scale
+    for tick in [-max_abs, max_abs]:
+        if tick not in label_ticks:
+            label_ticks.append(tick)
     # Decrease the font size for the labels
     context.set_font_size((image.font)*0.8) 
     # Plot the axis ticks
     for tick in label_ticks:
-        lab = f'{tick}'
+        lab = f'{tick:g}'
         label_height = context.text_extents(lab)[3]
         label_width = context.text_extents(lab)[2]
         lab_x = (x1*0.995)-label_width
-        lab_y = y2-((y2-y1)*(tick/max_val))+(label_height/2)
-        if tick == max_val:
-            lab_y = y1+(label_height/2)
-        elif tick == 0:
-            lab_y = y2+(label_height/2)
+        lab_y = scale_val_to_y(tick)+(label_height/2)
         txt_col = ChromColors('text')
         context.move_to(lab_x, lab_y)
         context.set_source_rgb(txt_col.r, txt_col.g, txt_col.b)
@@ -556,10 +579,11 @@ def draw_title(image, context, title):
     context.show_text(title)
 
 
-def get_value_distribution(win_val_dict, value_type='proportion'):
+def get_value_distribution(win_val_dict, value_type='proportion', max_abs=MAX_LOG2):
     '''
-    Iterate over the windows dictionary and get the distribution of
-    genome-wide values.
+    Iterate over the windows dictionary and report the distribution of
+    genome-wide log2 enrichment values, including how many fall outside
+    the limits of the color scale.
     '''
     assert value_type in ['proportion', 'count']
     values = list()
@@ -570,30 +594,35 @@ def get_value_distribution(win_val_dict, value_type='proportion'):
                 values.append(window.proportion)
             else:
                 values.append(window.n_elements)
-    mean_value = np.mean(values)
-    max_value = max(values)
-    return mean_value, max_value
+    values = np.array(values)
+    n_low = np.sum(values < -max_abs)
+    n_high = np.sum(values > max_abs)
+    print(f'''    Log2 enrichment across {len(values):,} windows:
+        Min: {np.min(values):,.4g}; Median: {np.median(values):,.4g}; Max: {np.max(values):,.4g}
+        Clamped to the color scale (+/-{max_abs:g}): {n_low:,} below; {n_high:,} above''',
+          flush=True)
 
 
 # Draw a figure
 def draw_genome_stats(outf, chromosomes, chrom_order, win_val_dict, 
                       name, plot_type = 'proportion',
                       height=IMG_HEIGHT, width=IMG_WIDTH, 
-                      scale=SCALE, step=STEP, img_type='pdf'):
+                      scale=SCALE, step=STEP, img_type='pdf',
+                      max_abs=MAX_LOG2):
     print(f'\nMaking plot ({name}):\n    {outf}', flush=True)
     # Set an image object global variable
     image = Image(height=height, width=width, img_type=img_type)
     surface, context = image.cairo_context(outf)
-    # Get the distribution of values along the genome
-    mean_val, max_val = get_value_distribution(win_val_dict, plot_type)
+    # Report the distribution of values along the genome
+    get_value_distribution(win_val_dict, plot_type, max_abs)
     # Plot gridlines
     max_grd = plot_gridlines(chromosomes, image, context, scale, step)
     # Process the chromosomes
     process_chromosomes(chromosomes, chrom_order, win_val_dict, 
-                        image, context, max_grd, mean_val, 
-                        max_val, plot_type, scale, step)
+                        image, context, max_grd, max_abs,
+                        plot_type, scale, step)
     # Plot the scale
-    draw_scale(image, context, mean_val, max_val)
+    draw_scale(image, context, max_abs)
     # Add title
     draw_title(image, context, name)
 
@@ -622,17 +651,19 @@ def main():
 
     # 1. For the number of elements
     outf = f'{args.out_dir}/{args.basename}.num_elements.{args.img_format}'
-    name = f'{args.basename} : Number of elements per window'
+    name = f'{args.basename} : Number of elements per window (log2 enrichment)'
     draw_genome_stats(outf, chromosomes, chrom_order, windows, name, 
                       plot_type='count', height=args.img_height, width=args.img_width,
-                      scale=args.scale, step=args.step, img_type=args.img_format)
+                      scale=args.scale, step=args.step, img_type=args.img_format,
+                      max_abs=args.max_log2)
 
     # 2. For the proportion of sites
     outf = f'{args.out_dir}/{args.basename}.site_proportions.{args.img_format}'
-    name = f'{args.basename} : Proportion of sites per window'
+    name = f'{args.basename} : Proportion of sites per window (log2 enrichment)'
     draw_genome_stats(outf, chromosomes, chrom_order, windows, name, 
                       plot_type='proportion', height=args.img_height, width=args.img_width,
-                      scale=args.scale, step=args.step, img_type=args.img_format)
+                      scale=args.scale, step=args.step, img_type=args.img_format,
+                      max_abs=args.max_log2)
 
 
     print(f'\n{PROG} finished on {date()} {time()}.')

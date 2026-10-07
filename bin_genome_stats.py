@@ -388,16 +388,20 @@ def process_windows_output(genomic_windows, output_dir, basename):
                 row = f'{window.chr}\t{window.sta}\t{window.end}\t{window.mid}'
                 # Then process the rest and add to the list
                 # Number of elements per window
-                # Adjust based on the mean
-                elements_adj = window.n_elements/element_mean
+                # Adjust based on the mean as a log2 enrichment, with a
+                # pseudocount of one element to handle empty windows
+                elements_adj = np.log2((window.n_elements+1)/(element_mean+1))
                 # Calculate a Z-score
                 elements_z = (window.n_elements-element_mean)/element_std
                 row += f'\t{window.n_elements}\t{elements_adj:0.8g}\t{elements_z:0.8g}'
 
                 # Proportion of elements in window
-                prop_elements = len(window.sites)/(window.end-window.sta)
-                # Adjust based on the mean
-                prop_adj = prop_elements/prop_mean
+                window_len = window.end-window.sta
+                prop_elements = len(window.sites)/window_len
+                # Adjust based on the mean as a log2 enrichment, with a
+                # pseudocount of one site (1/window length) to handle empty windows
+                prop_pseudo = 1/window_len
+                prop_adj = np.log2((prop_elements+prop_pseudo)/(prop_mean+prop_pseudo))
                 # Calculate a Z-score
                 prop_z = (prop_elements-prop_mean)/prop_std
                 row += f'\t{prop_elements:0.8g}\t{prop_adj:0.8g}\t{prop_z:0.8g}'
