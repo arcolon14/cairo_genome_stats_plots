@@ -349,6 +349,8 @@ class Image:
         self.width  = width
         self.font   = font_size
         self.type   = img_type
+        self.edge   = edge
+        self.offset = offset
         self.max_y  = edge
         self.min_y  = height-edge
         self.min_x  = edge
@@ -361,6 +363,18 @@ class Image:
         # Position for labels
         self.len_lab = height-edge
         self.chr_lab = offset-edge
+    def fit_chrom_labels(self, context, labels, pad=5):
+        '''
+        Place the start of the chromosomes after the widest chromosome
+        label, so that the labels are not cut off at the left edge.
+        The labels are right-aligned to self.chr_lab.
+        '''
+        context.set_font_size(self.font)
+        # Width of the label from the drawing point, including the bearing
+        max_width = max([ context.text_extents(label)[0] + context.text_extents(label)[2]
+                          for label in labels ])
+        self.min_chr = max(self.offset, self.min_x + max_width + pad)
+        self.chr_lab = self.min_chr - pad
     def scale_bp_to_pix(self, pos_bp, max_bp):
         scaled_x = ((pos_bp/max_bp)*(self.max_chr - self.min_chr)) + self.min_chr
         return scaled_x
@@ -484,8 +498,9 @@ def process_chromosomes(chromosomes, chrom_order, wins_dict, image,
         # Add the labels
         label = str(chromosomes[chromosome].name)
         label_height = context.text_extents(label)[3]
-        label_width = context.text_extents(label)[2]
-        lab_x = image.chr_lab-(label_width/2)
+        label_width = context.text_extents(label)[0] + context.text_extents(label)[2]
+        # Right-align the labels next to the start of the chromosomes
+        lab_x = image.chr_lab-label_width
         lab_y = (y+(2*min_step))+(label_height/2)
         txt_col = ChromColors('text')
         context.move_to(lab_x, lab_y)
@@ -613,6 +628,8 @@ def draw_genome_stats(outf, chromosomes, chrom_order, win_val_dict,
     # Set an image object global variable
     image = Image(height=height, width=width, img_type=img_type)
     surface, context = image.cairo_context(outf)
+    # Adjust the start of the chromosomes to the width of their labels
+    image.fit_chrom_labels(context, [ str(chromosomes[chrom].name) for chrom in chrom_order ])
     # Report the distribution of values along the genome
     get_value_distribution(win_val_dict, plot_type, max_abs)
     # Plot gridlines
