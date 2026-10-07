@@ -13,6 +13,8 @@ IMG_WIDTH = 500
 IMG_HEIGHT = 500
 FONT_SIZE = 10
 MAX_LOG2 = 3
+SCALE_QUANTILE = 99
+SCALE_ROUND = 0.5
 
 #
 # Command line options
@@ -42,8 +44,10 @@ def parse_args():
                    help=f'(int) Image width in pixels [default={IMG_WIDTH}].')
     p.add_argument('--img-format', required=False, default='pdf',
                    help='(str) Image output format [default=pdf]')
-    p.add_argument('--max-log2', required=False, default=MAX_LOG2, type=float,
-                   help=f'(int/float) Limit of the symmetric log2 enrichment color scale; values beyond +/- this are clamped [default={MAX_LOG2}].')
+    p.add_argument('--max-log2', required=False, default=str(MAX_LOG2),
+                   help=f'(int/float/\'auto\') Limit of the symmetric log2 enrichment color scale; values beyond +/- this are clamped. If \'auto\', set the limit for each plot from the data (see --scale-quantile) [default={MAX_LOG2}].')
+    p.add_argument('--scale-quantile', required=False, default=SCALE_QUANTILE, type=float,
+                   help=f'(int/float) When --max-log2 is \'auto\', percentile of the absolute log2 values used as the limit of the color scale, rounded up to the nearest {SCALE_ROUND} [default={SCALE_QUANTILE}].')
     # Check inputs
     args = p.parse_args()
     assert args.scale <= args.min_len
@@ -53,8 +57,18 @@ def parse_args():
     assert os.path.exists(args.in_table)
     assert os.path.exists(args.out_dir)
     assert args.img_format in ['pdf', 'svg']
-    if not args.max_log2 > 0:
-        sys.exit(f'Error: Max log2 value of the color scale ({args.max_log2}) must be > 0.')
+    # The max log2 is either 'auto' (stored as None) or a number
+    if args.max_log2.lower() == 'auto':
+        args.max_log2 = None
+    else:
+        try:
+            args.max_log2 = float(args.max_log2)
+        except ValueError:
+            sys.exit(f'Error: Max log2 value of the color scale ({args.max_log2}) must be a number or \'auto\'.')
+        if not args.max_log2 > 0:
+            sys.exit(f'Error: Max log2 value of the color scale ({args.max_log2}) must be > 0.')
+    if not 0 < args.scale_quantile <= 100:
+        sys.exit(f'Error: Scale quantile ({args.scale_quantile}) must be > 0 and <= 100.')
     args.out_dir = args.out_dir.rstrip('/')
     # Adjust the basename if missing
     if args.basename is None:
@@ -607,11 +621,10 @@ def draw_title(image, context, title):
     context.show_text(title)
 
 
-def get_value_distribution(win_val_dict, value_type='proportion', max_abs=MAX_LOG2):
+def get_window_values(win_val_dict, value_type='proportion'):
     '''
-    Iterate over the windows dictionary and report the distribution of
-    genome-wide log2 enrichment values, including how many fall outside
-    the limits of the color scale.
+    Iterate over the windows dictionary and get the distribution of
+    genome-wide log2 enrichment values.
     '''
     assert value_type in ['proportion', 'count']
     values = list()
@@ -622,12 +635,34 @@ def get_value_distribution(win_val_dict, value_type='proportion', max_abs=MAX_LO
                 values.append(window.proportion)
             else:
                 values.append(window.n_elements)
-    values = np.array(values)
+    return np.array(values)
+
+def auto_scale_limit(values, quantile=SCALE_QUANTILE, round_to=SCALE_ROUND):
+    '''
+    Set the limit of the symmetric color scale from the data, as the given
+    percentile of the absolute log2 values, rounded up to the nearest
+    `round_to` value (with a minimum of `round_to`).
+    '''
+    assert 0 < quantile <= 100
+    assert round_to > 0
+    limit = np.percentile(np.abs(values), quantile)
+    limit = math.ceil(limit/round_to)*round_to
+    return max(round_to, limit)
+
+def report_value_distribution(values, max_abs, auto_scale=False, quantile=SCALE_QUANTILE):
+    '''
+    Report the distribution of the log2 enrichment values, including how
+    many fall outside the limits of the color scale.
+    '''
     n_low = np.sum(values < -max_abs)
     n_high = np.sum(values > max_abs)
+    source = 'Fixed'
+    if auto_scale:
+        source = f'Auto; {quantile:g}th percentile of |log2| = {np.percentile(np.abs(values), quantile):,.4g}, rounded up'
     print(f'''    Log2 enrichment across {len(values):,} windows:
         Min: {np.min(values):,.4g}; Median: {np.median(values):,.4g}; Max: {np.max(values):,.4g}
-        Clamped to the color scale (+/-{max_abs:g}): {n_low:,} below; {n_high:,} above''',
+        Color scale limit: +/-{max_abs:g} ({source})
+        Clamped to the color scale: {n_low:,} below; {n_high:,} above''',
           flush=True)
 
 
@@ -636,15 +671,20 @@ def draw_genome_stats(outf, chromosomes, chrom_order, win_val_dict,
                       name, plot_type = 'proportion',
                       height=IMG_HEIGHT, width=IMG_WIDTH, 
                       scale=SCALE, step=STEP, img_type='pdf',
-                      max_abs=MAX_LOG2):
+                      max_abs=MAX_LOG2, quantile=SCALE_QUANTILE):
     print(f'\nMaking plot ({name}):\n    {outf}', flush=True)
     # Set an image object global variable
     image = Image(height=height, width=width, img_type=img_type)
     surface, context = image.cairo_context(outf)
     # Adjust the start of the chromosomes to the width of their labels
     image.fit_chrom_labels(context, [ str(chromosomes[chrom].name) for chrom in chrom_order ])
-    # Report the distribution of values along the genome
-    get_value_distribution(win_val_dict, plot_type, max_abs)
+    # Get the distribution of values along the genome, and set the limit
+    # of the color scale from the data if needed (max_abs of None)
+    values = get_window_values(win_val_dict, plot_type)
+    auto_scale = max_abs is None
+    if auto_scale:
+        max_abs = auto_scale_limit(values, quantile)
+    report_value_distribution(values, max_abs, auto_scale, quantile)
     # Plot gridlines
     max_grd = plot_gridlines(chromosomes, image, context, scale, step)
     # Process the chromosomes
@@ -685,7 +725,7 @@ def main():
     draw_genome_stats(outf, chromosomes, chrom_order, windows, name, 
                       plot_type='count', height=args.img_height, width=args.img_width,
                       scale=args.scale, step=args.step, img_type=args.img_format,
-                      max_abs=args.max_log2)
+                      max_abs=args.max_log2, quantile=args.scale_quantile)
 
     # 2. For the proportion of sites
     outf = f'{args.out_dir}/{args.basename}.site_proportions.{args.img_format}'
@@ -693,7 +733,7 @@ def main():
     draw_genome_stats(outf, chromosomes, chrom_order, windows, name, 
                       plot_type='proportion', height=args.img_height, width=args.img_width,
                       scale=args.scale, step=args.step, img_type=args.img_format,
-                      max_abs=args.max_log2)
+                      max_abs=args.max_log2, quantile=args.scale_quantile)
 
 
     print(f'\n{PROG} finished on {date()} {time()}.')
